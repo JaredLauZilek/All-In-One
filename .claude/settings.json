@@ -1,0 +1,18 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(curl -s -X POST \"https://vjqbircarzxcxrdzlyxj.supabase.co/functions/v1/lzd-check-stock\" -H \"Content-Type: application/json\" -H \"x-lzd-cron-secret: 07c5d3d56a5296d87d0b237da1808be3f0e8451078cbf084\" -d '{}' -w \"\\\\nhttp=%{http_code} time=%{time_total}s\\\\n\")",
+      "mcp__claude_ai_Supabase__get_project_url",
+      "mcp__claude_ai_Supabase__get_publishable_keys",
+      "Bash(curl -s -X POST https://vjqbircarzxcxrdzlyxj.supabase.co/auth/v1/signup -H 'apikey: sb_publishable_9i-1BFr30Qx9o5g9ZJFWXQ_Wgk8AT5K' -H 'Content-Type: application/json' -d '{\"email\":\"jared@voltara.com.my\",\"password\":\"Lzd-__CMDSUB_OUTPUT__\"}')",
+      "Bash(curl -s -X POST \"https://vjqbircarzxcxrdzlyxj.supabase.co/auth/v1/token?grant_type=password\" -H \"apikey: sb_publishable_9i-1BFr30Qx9o5g9ZJFWXQ_Wgk8AT5K\" -H \"Content-Type: application/json\" -d '{\"email\":\"jared@voltara.com.my\",\"password\":\"Lzd-05602875c53aecb5\"}')",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\('login OK, user:', d.get\\('user',{}\\).get\\('email'\\), '| token:', bool\\(d.get\\('access_token'\\)\\)\\)\")",
+      "Bash(npm install *)",
+      "Bash(npm run *)",
+      "mcp__claude_ai_Supabase__get_advisors",
+      "Bash(git add *)",
+      "Bash(git commit -m 'Add Lazada restock monitor \\(Supabase + React + Telegram alerts\\) *)",
+      "Bash(git push *)"
+    ]
+  }
+}
