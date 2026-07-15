@@ -2,7 +2,7 @@
 //   node src/selftest.js [url ...]
 // Defaults exercise a known OOS product, a known in-stock product, and a delisted one.
 import { chromium } from "playwright";
-import { checkStock, createContext, createPage } from "./lazada.js";
+import { checkStock, createContext } from "./lazada.js";
 
 const urls = process.argv.slice(2).length
   ? process.argv.slice(2)
@@ -15,16 +15,14 @@ const urls = process.argv.slice(2).length
 const browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
 const ctx = await createContext(browser);
 for (const u of urls) {
-  const page = await createPage(ctx);
-  const r = await checkStock(page, u);
+  const r = await checkStock(ctx, u);
   console.log(
     `${r.status.padEnd(13)} ${String(r.latencyMs).padStart(6)}ms  ` +
       `${r.price !== undefined ? (r.currency ?? "MYR") + " " + r.price : "no price"}  ` +
       `${(r.title ?? "").slice(0, 45)}${r.error ? "  ERR:" + r.error : ""}`,
   );
-  // Second pass on the same warm page: this is the steady-state cost in the real loop.
-  const r2 = await checkStock(page, u);
-  console.log(`  └─ warm reload: ${String(r2.latencyMs).padStart(6)}ms  ${r2.status}`);
-  await page.close();
+  // Second pass reusing the same warm context: steady-state cost in the real loop.
+  const r2 = await checkStock(ctx, u);
+  console.log(`  └─ warm-context reload: ${String(r2.latencyMs).padStart(6)}ms  ${r2.status}`);
 }
 await browser.close();

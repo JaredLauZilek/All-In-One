@@ -12,15 +12,16 @@ const FETCH_METHOD_LABEL: Record<string, string> = {
   scrape_api: "ScraperAPI (legacy)",
 };
 
-// The worker keeps ONE warm browser session per product and reloads it, which held ~2.5s
-// flat across 14 reloads at 5s with no throttling. (An earlier design opened a fresh
-// session per check and Lazada tarpitted it: 6s -> 89s at a 10s interval. The session
-// churn was the trigger, not the rate.) 5s is the practical floor since a reload itself
-// takes ~2-3s. This is a minimum gap between checks, never a guarantee — watch median
-// speed on the dashboard; a creeping median means throttling.
+// A check takes ~2.75s (browser page load). Lazada does NOT throttle by IP/session —
+// plain curl always returns in ~2.8s; every apparent "throttle" during development was
+// really CPU starvation on an undersized Fly VM. On shared-cpu-2x the sustainable floor
+// is ~10s (loop has headroom, near-zero timeouts). 5s also works but runs the VM at
+// capacity, so an occasional page hiccup times out one check (the loop recovers next
+// tick). Below 5s, or rock-solid 5s, needs more CPU (shared-cpu-4x). This is a minimum
+// gap between checks, not a guarantee — watch median speed on the dashboard.
 const INTERVALS = [
-  { secs: 5, label: "5 sec (fastest)" },
-  { secs: 10, label: "10 sec" },
+  { secs: 5, label: "5 sec (VM at capacity)" },
+  { secs: 10, label: "10 sec (recommended)" },
   { secs: 15, label: "15 sec" },
   { secs: 30, label: "30 sec" },
   { secs: 60, label: "1 min" },

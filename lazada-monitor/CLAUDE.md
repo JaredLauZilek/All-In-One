@@ -13,13 +13,19 @@ dashboard. Owner: jared@voltara.com.my. Alerts go through Telegram bot **@pokemo
 ## Backend lives in a SHARED Supabase project — read this first
 
 Project **DRAM** (`vjqbircarzxcxrdzlyxj`, org "Personal Tools" `kwuuwijzamsjkwvdlquk`).
-This project also hosts an unrelated market-signal tool. **Everything this app owns is
-prefixed `lzd_`.**
+The project name is historical and refers to the *project*, not to this app or only to the
+other one. It also hosts the sibling app `financial-tracker/` (a memory-cycle signal desk).
+**Everything this app owns is prefixed `lzd_`.**
 
-- **Never touch** these pre-existing objects: tables `contract_log`, `app_config`,
-  `catalysts`, `snapshots`; edge functions `daily-signal`, `market-probe`.
+- **Never touch** the sibling app's objects — everything prefixed `fin_` / `FIN_` / `fin-`:
+  tables `fin_app_config`, `fin_contract_log`, `fin_catalysts`, `fin_snapshots`; edge
+  function `fin-daily-signal`; cron job `fin-daily-signal`. (These were the unprefixed
+  `app_config` / `contract_log` / `catalysts` / `snapshots` / `daily-signal` until
+  2026-07-15 — if you find that old naming anywhere, it's stale.)
 - All new tables/functions/cron jobs/secrets for this app **must** start with `lzd_` /
   `LZD_` / `lzd-`. This is the one rule that keeps the two apps from colliding.
+- Two dead edge functions (`daily-signal`, `market-probe`) still exist pending manual
+  deletion from the dashboard. They are nobody's — don't wire anything to them.
 
 ## Architecture / data flow
 

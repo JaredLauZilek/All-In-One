@@ -48,7 +48,22 @@
       "Bash(node -e \"const s=require\\('./package.json'\\).scripts; Object.entries\\(s\\).forEach\\(\\([k,v]\\)=>console.log\\('  npm run '+k.padEnd\\(12\\)+' -> '+v\\)\\)\")",
       "Bash(timeout 200 node src/selftest.js https://www.lazada.sg/products/pdp-i13696744288-s124594658123.html https://www.lazada.com.my/products/pokemon-tcg-booster-pack-1000-original-i3892201953.html https://www.lazada.com.my/products/pokemon-tcg-booster-box-1000-original-i3967555066.html)",
       "Bash(timeout 200 node phase.mjs)",
-      "Bash(timeout 200 node src/selftest.js https://www.lazada.sg/products/pdp-i13696744288-s124594658123.html https://www.lazada.com.my/products/pokemon-tcg-booster-pack-1000-original-i3892201953.html)"
+      "Bash(timeout 200 node src/selftest.js https://www.lazada.sg/products/pdp-i13696744288-s124594658123.html https://www.lazada.com.my/products/pokemon-tcg-booster-pack-1000-original-i3892201953.html)",
+      "mcp__claude_ai_Supabase__list_tables",
+      "Bash(gh auth *)",
+      "Bash(gh repo *)",
+      "Bash(grep -c '^\\\\.git$')",
+      "Bash(sed -i 's/\"name\": \"memory-cycle-signal\"/\"name\": \"financial-tracker\"/' package.json)",
+      "Bash(sed -i 's|^//  daily-signal — Supabase Edge Function \\(Deno\\)|//  fin-daily-signal — Supabase Edge Function \\(Deno\\)|' supabase/functions/fin-daily-signal/index.ts)",
+      "Bash(curl -s -X POST https://vjqbircarzxcxrdzlyxj.supabase.co/functions/v1/fin-daily-signal -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcWJpcmNhcnp4Y3hyZHpseXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDQ3MjUsImV4cCI6MjA5OTE4MDcyNX0.TnxX82YmAlbXMvr3Ll4r4UB7d4rs3fcxrb-ozGB3KKE' -H 'Content-Type: application/json' -w '\\\\n--- http=%{http_code} time=%{time_total}s ---\\\\n')",
+      "Bash(rm -f package-lock.json)",
+      "Bash(echo \"--- install exit=$? ---\")",
+      "Bash(node -e \"require.resolve\\('playwright'\\); console.log\\('playwright OK'\\)\")",
+      "Bash(timeout 90 node ft-shot.mjs)",
+      "Bash(curl -s -o /dev/null -w 'http=%{http_code}\\\\n' 'https://vjqbircarzxcxrdzlyxj.supabase.co/rest/v1/fin_snapshots?select=snapshot_date&limit=1' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcWJpcmNhcnp4Y3hyZHpseXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDQ3MjUsImV4cCI6MjA5OTE4MDcyNX0.TnxX82YmAlbXMvr3Ll4r4UB7d4rs3fcxrb-ozGB3KKE' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcWJpcmNhcnp4Y3hyZHpseXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDQ3MjUsImV4cCI6MjA5OTE4MDcyNX0.TnxX82YmAlbXMvr3Ll4r4UB7d4rs3fcxrb-ozGB3KKE')",
+      "Bash(curl -s -w '\\\\nhttp=%{http_code}\\\\n' -X PATCH https://vjqbircarzxcxrdzlyxj.supabase.co/rest/v1/fin_app_config?id=eq.1 -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcWJpcmNhcnp4Y3hyZHpseXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDQ3MjUsImV4cCI6MjA5OTE4MDcyNX0.TnxX82YmAlbXMvr3Ll4r4UB7d4rs3fcxrb-ozGB3KKE' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcWJpcmNhcnp4Y3hyZHpseXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDQ3MjUsImV4cCI6MjA5OTE4MDcyNX0.TnxX82YmAlbXMvr3Ll4r4UB7d4rs3fcxrb-ozGB3KKE' -H 'Content-Type: application/json' -H 'Prefer: return=representation' -d '{\"stale_days\":40}')",
+      "Bash(pkill -f \"vite\")",
+      "Bash(git check-ignore *)"
     ]
   }
 }

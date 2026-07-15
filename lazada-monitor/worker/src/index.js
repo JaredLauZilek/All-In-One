@@ -10,7 +10,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
-import { checkStock, createContext, createPage } from "./lazada.js";
+import { checkStock, createContext } from "./lazada.js";
 import { tgSendMessage, escapeHtml } from "./telegram.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -20,7 +20,6 @@ const JITTER_MS = Number(process.env.JITTER_MS ?? 4000);
 const ERROR_BACKOFF_AFTER = 5;
 const ERROR_BACKOFF_SECS = 900;
 const BROWSER_RECYCLE_CHECKS = 500; // guard against long-run memory creep
-const MAX_WARM_PAGES = Number(process.env.MAX_WARM_PAGES ?? 6); // ~1GB VM headroom
 
 if (!SUPABASE_URL || !SERVICE_ROLE_KEY) {
   console.error("Missing SUPABASE_URL / SUPABASE_SERVICE_ROLE_KEY");
@@ -186,27 +185,10 @@ async function main() {
   let ctx = await createContext(browser);
   let sinceRecycle = 0;
 
-  // One warm page per product, kept open across checks. This is what keeps us off
-  // Lazada's throttle — see the comment on checkStock().
-  const warm = new Map(); // productId -> page
-
-  async function pageFor(p) {
-    const existing = warm.get(p.id);
-    if (existing && !existing.isClosed()) return existing;
-    if (warm.size >= MAX_WARM_PAGES) {
-      const [oldId, oldPage] = warm.entries().next().value;
-      await oldPage.close().catch(() => {});
-      warm.delete(oldId);
-    }
-    const page = await createPage(ctx);
-    warm.set(p.id, page);
-    return page;
-  }
-
+  // One warm context (stable session); checkStock() opens and closes an ephemeral page
+  // per check so Lazada's background JS can't accumulate CPU between checks.
   async function recycle() {
     log("recycling browser");
-    for (const pg of warm.values()) await pg.close().catch(() => {});
-    warm.clear();
     await ctx.close().catch(() => {});
     await browser.close().catch(() => {});
     browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
@@ -235,16 +217,8 @@ async function main() {
         .filter((p) => isDue(p, now))
         .sort((a, b) => (a.last_checked_at ?? "").localeCompare(b.last_checked_at ?? ""));
 
-      // Drop warm pages for products that are gone or paused.
-      for (const [id, pg] of warm) {
-        if (!(products ?? []).some((p) => p.id === id && p.is_active)) {
-          await pg.close().catch(() => {});
-          warm.delete(id);
-        }
-      }
-
       for (const p of due) {
-        await processProduct(await pageFor(p), p);
+        await processProduct(ctx, p);
         if (++sinceRecycle >= BROWSER_RECYCLE_CHECKS) await recycle();
         // Small jitter so requests aren't perfectly metronomic.
         await sleep(Math.random() * JITTER_MS);

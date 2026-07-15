@@ -53,38 +53,30 @@ export async function createContext(browser) {
   return ctx;
 }
 
-/** A warm page bound to one product URL. Skips images/fonts/media. */
-export async function createPage(ctx) {
-  const page = await ctx.newPage();
-  await page.route("**/*", (route) => {
-    const t = route.request().resourceType();
-    if (t === "image" || t === "font" || t === "media") return route.abort();
-    return route.continue();
-  });
-  return page;
-}
-
 /**
- * Check stock on an EXISTING warm page — reloading if we're already on the URL.
+ * Check stock using a warm CONTEXT but an EPHEMERAL page — created here, closed in
+ * `finally`. This is the design that survives short intervals:
  *
- * Why warm: opening a fresh context per check (new cookies/fingerprint every few
- * seconds) reads as a bot swarm and Lazada tarpits it — measured 2026-07, latency
- * decayed 6s -> 89s at a 10s interval. Reusing one session and reloading held FLAT at
- * ~2.5s across 14 reloads at 5s. The session, not the rate, was the trigger.
+ *  - Reusing the context keeps one stable session (cookies/fingerprint), and it turns
+ *    out Lazada never throttled us by session anyway (plain curl always returns in ~2.8s;
+ *    every "throttle" we saw was actually CPU starvation).
+ *  - Closing the page each check is the load-bearing part: Lazada's PDP runs a lot of
+ *    background JS (analytics, timers, polling). A page held OPEN between checks drains
+ *    CPU continuously and, at a 5s cadence on a shared VM, snowballs into 45s+ timeouts.
+ *    An ephemeral page bounds CPU to a short burst per check. (Measured 2026-07.)
  */
-export async function checkStock(page, url) {
+export async function checkStock(ctx, url) {
   const start = Date.now();
+  let page;
   try {
-    const onUrl = (() => {
-      try {
-        return new URL(page.url()).pathname === new URL(url).pathname;
-      } catch {
-        return false;
-      }
-    })();
+    page = await ctx.newPage();
+    await page.route("**/*", (route) => {
+      const t = route.request().resourceType();
+      if (t === "image" || t === "font" || t === "media") return route.abort();
+      return route.continue();
+    });
 
-    if (onUrl) await page.reload({ waitUntil: "domcontentloaded", timeout: 45000 });
-    else await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
     await page
       .waitForFunction(
         () => {
@@ -165,5 +157,7 @@ export async function checkStock(page, url) {
     };
   } catch (e) {
     return { status: "error", latencyMs: Date.now() - start, error: String(e).slice(0, 200) };
+  } finally {
+    await page?.close().catch(() => {});
   }
 }
