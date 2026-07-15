@@ -24,19 +24,23 @@ prefixed `lzd_`.**
 ## Architecture / data flow
 
 ```
-pg_cron "lzd-tick" (every 30s)
-  └─ net.http_post → Edge Fn lzd-check-stock  (auth: x-lzd-cron-secret header)
-       ├─ select products due (per-product interval, burst-aware, error-backoff)
-       ├─ tiered fetch (see below) → parse stock + price
-       ├─ insert lzd_checks row; update lzd_products
-       └─ if out_of_stock→in_stock: Telegram sendMessage + insert lzd_notifications
+Fly.io worker (worker/, Playwright + Chromium)   <-- owns stock checking
+  loop:
+   ├─ select active products due (interval / burst / error-backoff)
+   ├─ real browser loads page, waits for hydration, looks for "Add to Cart"
+   ├─ insert lzd_checks row; update lzd_products
+   └─ if out_of_stock→in_stock: Telegram sendMessage + insert lzd_notifications
 
 Edge Fn lzd-telegram-webhook  ← Telegram bot updates (auth: x-telegram-bot-api-secret-token)
        └─ /start <link_code> links chat; /list, /pause, /resume
-Edge Fn lzd-product-preview   ← web app "Add product" (JWT)   → one fetch, returns preview
-Edge Fn lzd-scraper-usage     ← web app dashboard card (JWT)  → proxies ScraperAPI /account
+Edge Fn lzd-product-preview   ← web app "Add product" (JWT) → metadata only, stock=unknown
+Edge Fn lzd-scraper-usage     ← web app dashboard card (JWT) → proxies ScraperAPI /account
 
 pg_cron "lzd-prune" (daily 03:15 UTC) → deletes old lzd_checks / lzd_notifications
+
+DEPRECATED (disabled, do not re-enable):
+  pg_cron "lzd-tick" + Edge Fn lzd-check-stock — HTTP-fetch checker. Superseded because
+  HTTP fetch cannot read Lazada stock at all (see "Stock can only be read by a browser").
 ```
 
 ## Repo layout
@@ -46,8 +50,13 @@ lazada-monitor/
 ├── CLAUDE.md          ← this file
 ├── README.md          ← runbook + Lazada parsing calibration notes
 ├── PLAN.md            ← original design/plan (historical)
+├── worker/            # Fly.io Playwright worker — OWNS stock checking (see its README)
+│   ├── src/index.js       # the loop: due products -> check -> log -> alert
+│   ├── src/lazada.js      # browser stock detection (the reliable signal)
+│   ├── src/selftest.js    # `node src/selftest.js` — verify detector, no DB/secrets
+│   └── Dockerfile + fly.toml
 ├── supabase/functions/            # mirror of what's deployed; deploy via Supabase MCP
-│   ├── lzd-check-stock/   index.ts + lazada.ts + telegram.ts
+│   ├── lzd-check-stock/   DEPRECATED (HTTP checker; cannot read stock) — cron disabled
 │   ├── lzd-telegram-webhook/  index.ts + telegram.ts
 │   ├── lzd-product-preview/   index.ts + lazada.ts
 │   └── lzd-scraper-usage/     index.ts
@@ -89,24 +98,37 @@ Edge functions call `admin.rpc("lzd_get_secrets")`. Current secrets:
 - The only secrets in the repo are the frontend's publishable values in `web/.env`
   (Supabase URL + publishable key), which are safe to expose.
 
-## Fetch strategy (the core, and its main gotcha)
+## Stock can only be read by a browser (the single most important fact here)
 
-`lazada.ts` `fetchProductPage()` is tiered: **direct fetch first** (free, ~1s), **ScraperAPI
-fallback** on block. A block puts direct on a 10-min cooldown (`blocked_until`).
+**Lazada's server-rendered HTML is stock-independent.** Verified exhaustively 2026-07
+against a product that was genuinely out of stock:
 
-**Reality as of 2026-07: Lazada blocks Supabase's Edge egress IPs, so in production
-essentially every check goes through ScraperAPI and burns ~1 credit.** The direct tier
-still matters (it's free when it works, e.g. from other hosts) but don't assume it carries
-load. Watch credit burn — the dashboard "ScraperAPI credits" card and lzd-scraper-usage
-exist for this. Check-interval choices are a cost lever, not just a latency lever.
+- schema.org `offers.availability` → always `InStock`
+- every SKU's `operation` → always `{text: "Add to Cart", disable: false}`
+- the SSR module list → always contains `module_add_to_cart`, never a notify/subscribe module
+- desktop and `h5.` mobile HTML are the same bytes
 
-Parsing (calibrated, see README for details): stock from schema.org **Product JSON-LD**
-`offers.availability`; price from `__moduleData__` `pdt_price`; title/image from JSON-LD.
-If neither JSON-LD nor `__moduleData__` is present, the page is treated as `blocked`.
+Real availability is applied **client-side after hydration**. So no HTTP fetch and no
+HTML parser can determine stock — the original checker read `InStock` forever and could
+therefore never observe an `out_of_stock → in_stock` transition (it silently never
+alerted). Don't "fix" this by finding a better regex; the data is not in the HTML.
 
-Tunable constants live at the top of `lzd-check-stock/index.ts`: `MAX_PER_TICK` (10),
-`DIRECT_BLOCK_COOLDOWN_MS` (10m), `ERROR_BACKOFF_AFTER` (5 consecutive errors →
-`ERROR_BACKOFF_SECS` 15m interval).
+**The reliable signal**: does a real "Add to Cart"/"Buy Now" button exist in the loaded
+page? That's what `worker/src/lazada.js` checks, and why the worker exists.
+
+Paths that were investigated and rejected:
+- *ScraperAPI `render=true`*: 500s on Lazada, and premium proxies (which its own error
+  recommends) are not on the current plan (403). Also ~57 s and 10–25 credits per check.
+- *Signed mtop API* (`mtop.lazada.detail.*` on `acs-m.lazada.com.my`): token+md5 signing
+  works, but the detail endpoints need Alibaba's rotating `x-sgext`/`x-mini-wua` anti-bot
+  headers → `FAIL_SYS_ILLEGAL_ACCESS`. Too fragile to depend on.
+
+Metadata (title/image/price/currency) *is* reliable in the HTML — that's all
+`lzd-product-preview` uses it for, and it now reports `stock_status: "unknown"`.
+
+Worker tunables: `TICK_MS`, `JITTER_MS` (env); `ERROR_BACKOFF_AFTER` (5 consecutive
+errors → 15 min), `BROWSER_RECYCLE_CHECKS` (200) in `worker/src/index.js`. A check takes
+~7–9 s and costs **no** scraping credits, so 15–30 s intervals are practical.
 
 ## Local development
 
@@ -134,6 +156,13 @@ forwarded domain (`*.app.github.dev`) works — don't remove it or Codespace pre
   `set search_path = ''`.
 - **Frontend**: `npm run build`, deploy `web/dist/` to any static host (Vercel). **Add a
   SPA rewrite** (all routes → `/index.html`) — the app uses client-side routing.
+
+## Deploying the worker
+
+`cd worker && fly deploy` (see `worker/README.md`). Secrets live in `fly secrets`
+(`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) — the bot token is read from Vault via
+`lzd_get_secrets()`, so it is not duplicated there. Keep `fly scale count 1`: two
+machines would double-check and could double-alert.
 
 ## Shared-module gotcha (easy to get wrong)
 

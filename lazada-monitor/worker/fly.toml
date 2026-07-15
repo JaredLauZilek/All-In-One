@@ -1,0 +1,18 @@
+# Fly.io worker: no [http_service] — this app serves no traffic, it just runs a loop.
+app = "lazada-monitor-worker"
+primary_region = "sin"  # Singapore — closest region to Lazada MY
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  TICK_MS = "5000"
+  JITTER_MS = "4000"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "1gb"  # Chromium OOMs below ~512mb; 1gb is the safe floor
+
+# Never scale to zero and never run two copies (double checks / double alerts).
+[deploy]
+  strategy = "immediate"

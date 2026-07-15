@@ -1,0 +1,13 @@
+{
+  "name": "lazada-monitor-worker",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "dependencies": {
+    "@supabase/supabase-js": "^2.47.0",
+    "playwright": "1.49.1"
+  }
+}

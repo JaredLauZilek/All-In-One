@@ -18,7 +18,26 @@
       "Skill(dataviz:*)",
       "mcp__claude_ai_Supabase__list_edge_functions",
       "Bash(git rm *)",
-      "Bash(git commit -q -m 'Add project CLAUDE.md; stop tracking tsbuildinfo build artifact *)"
+      "Bash(git commit -q -m 'Add project CLAUDE.md; stop tracking tsbuildinfo build artifact *)",
+      "Bash(curl -s -o now.html -w \"http=%{http_code} size=%{size_download} time=%{time_total}s\\\\n\" \"https://api.scraperapi.com/?api_key=c32ac943491258a079febe514b1977d8&url=https%3A%2F%2Fwww.lazada.com.my%2Fproducts%2Fpokemon-tcg-booster-box-1000-original-i3967555066.html&country_code=my\")",
+      "Bash(curl -s -o rendered.html -w \"http=%{http_code} size=%{size_download} time=%{time_total}s\\\\n\" \"https://api.scraperapi.com/?api_key=c32ac943491258a079febe514b1977d8&url=https%3A%2F%2Fwww.lazada.com.my%2Fproducts%2Fpokemon-tcg-booster-box-1000-original-i3967555066.html&country_code=my&render=true\")",
+      "Bash(curl -s -o h5.html -w \"http=%{http_code} size=%{size_download}\\\\n\" \"https://api.scraperapi.com/?api_key=c32ac943491258a079febe514b1977d8&url=https%3A%2F%2Fh5.lazada.com.my%2Fproducts%2Fpokemon-tcg-booster-box-1000-original-i3967555066.html&country_code=my\")",
+      "Bash(grep -oE '\\(mtop|acs-m|h5Request|pdp\\).{0,80}' now.html)",
+      "Bash(curl -s -o mod.js \"https://g.lazcdn.com/g/lzdfe/pdp-modules/2.0.21/pc-v2-mod.js\" -w \"mod.js http=%{http_code} size=%{size_download}\\\\n\")",
+      "Bash(grep -oE '.{20}getDetailInfo\\\\.mSite\\(\"|\\\\x27\\)?[^}]{0,220}' mod.js)",
+      "Bash(curl -s -o r2.html -w \"http=%{http_code} size=%{size_download} time=%{time_total}s\\\\n\" \"https://api.scraperapi.com/?api_key=c32ac943491258a079febe514b1977d8&url=https%3A%2F%2Fwww.lazada.com.my%2Fproducts%2Fpokemon-tcg-booster-box-1000-original-i3967555066.html&country_code=my&render=true&premium=true&wait_for_selector=.pdp-mod-product-badge-title\")",
+      "Bash(curl -s -o r3.html -w \"http=%{http_code} size=%{size_download} time=%{time_total}s\\\\n\" \"https://api.scraperapi.com/?api_key=c32ac943491258a079febe514b1977d8&url=https%3A%2F%2Fwww.lazada.com.my%2Fproducts%2Fpokemon-tcg-booster-box-1000-original-i3967555066.html&country_code=my&render=true&ultra_premium=true\")",
+      "Bash(grep -oE 'get\\\\\\(\"mtop\\\\.lazada\\\\.detail[^\\)]{0,120}' mod.js)",
+      "Bash(grep -oE 'getDetailInfo\\\\.mSite[^}]{0,140}' mod.js)",
+      "Bash(npm init *)",
+      "Bash(npm i *)",
+      "Bash(npx playwright *)",
+      "Bash(timeout 90 node stockcheck.mjs)",
+      "Bash(sudo npx playwright install-deps chromium)",
+      "Bash(timeout 90 node stockcheck.mjs \"https://www.lazada.com.my/products/pokemon-tcg-booster-pack-1000-original-i3892201953.html\")",
+      "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f\\\\\"ScraperAPI: {d['requestCount']}/{d['requestLimit']} used, {d['creditsLeft']} credits left\\\\\"\\)\")",
+      "Bash(timeout 180 node src/selftest.js)",
+      "Bash(timeout 200 node src/selftest.js)"
     ]
   }
 }

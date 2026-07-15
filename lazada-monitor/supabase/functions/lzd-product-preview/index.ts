@@ -44,7 +44,10 @@ Deno.serve(async (req: Request) => {
     price: parsed.price ?? null,
     currency: parsed.currency ?? "MYR",
     shop_name: parsed.shopName ?? null,
-    stock_status: parsed.status,
+    // Title/image/price are reliable in the server-rendered HTML, but stock is NOT:
+    // Lazada always bakes in "InStock"/"Add to Cart" and applies real availability
+    // client-side. Report unknown; the browser worker resolves it on its first check.
+    stock_status: "unknown",
     fetch_method: fetched.method,
     latency_ms: fetched.latencyMs,
   });
