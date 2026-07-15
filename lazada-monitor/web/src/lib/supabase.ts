@@ -60,6 +60,21 @@ export interface Settings {
   retention_days: number;
 }
 
+export interface WorkerState {
+  started_at: string | null;
+  last_heartbeat_at: string | null;
+  machine_id: string | null;
+  region: string | null;
+  vm_memory_mb: number | null;
+  checks_completed: number;
+  checks_failed: number;
+  browser_restarts: number;
+  last_error: string | null;
+}
+
+/** Heartbeats older than this mean the worker is wedged or dead, not just idle. */
+export const WORKER_STALE_SECS = 90;
+
 export const BOT_USERNAME = "pokemonAIO_bot";
 
 /**

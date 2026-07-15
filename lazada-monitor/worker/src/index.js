@@ -30,6 +30,31 @@ const db = createClient(SUPABASE_URL, SERVICE_ROLE_KEY, { auth: { persistSession
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 const log = (...a) => console.log(new Date().toISOString(), ...a);
 
+// --- health reporting -------------------------------------------------------
+// The dashboard reads lzd_worker_state to show whether the monitor is alive. Fly
+// injects FLY_MACHINE_ID / FLY_REGION; they're absent when running locally.
+const STARTED_AT = new Date().toISOString();
+const health = { checksCompleted: 0, checksFailed: 0, browserRestarts: 0, lastError: null };
+
+async function heartbeat() {
+  const { error } = await db
+    .from("lzd_worker_state")
+    .update({
+      started_at: STARTED_AT,
+      last_heartbeat_at: new Date().toISOString(),
+      machine_id: process.env.FLY_MACHINE_ID ?? "local",
+      region: process.env.FLY_REGION ?? "local",
+      vm_memory_mb: Number(process.env.FLY_VM_MEMORY_MB ?? 0) || null,
+      checks_completed: health.checksCompleted,
+      checks_failed: health.checksFailed,
+      browser_restarts: health.browserRestarts,
+      last_error: health.lastError,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", 1);
+  if (error) log("heartbeat failed:", error.message);
+}
+
 let botToken = null;
 async function getBotToken() {
   if (botToken) return botToken;
@@ -123,6 +148,12 @@ async function processProduct(browser, p) {
     if (prev === "out_of_stock") await notifyRestock(p, parsed);
   }
 
+  if (real) health.checksCompleted++;
+  else {
+    health.checksFailed++;
+    health.lastError = parsed.error ?? `status=${parsed.status}`;
+  }
+
   log(`${parsed.status.padEnd(12)} ${parsed.latencyMs}ms  ${(p.title ?? p.url).slice(0, 60)}`);
 }
 
@@ -138,6 +169,8 @@ async function main() {
   };
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
+
+  await heartbeat();
 
   for (;;) {
     try {
@@ -156,14 +189,19 @@ async function main() {
           await browser.close().catch(() => {});
           browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
           sinceRecycle = 0;
+          health.browserRestarts++;
         }
         // Jitter between products so requests don't look metronomic to anti-bot.
         await sleep(Math.random() * JITTER_MS);
       }
     } catch (e) {
-      log("loop error:", String(e).slice(0, 200));
+      health.lastError = String(e).slice(0, 200);
+      log("loop error:", health.lastError);
       await sleep(10000);
     }
+    // Heartbeat every pass, so a stale timestamp in the dashboard means the worker
+    // is genuinely wedged or dead — not merely idle between checks.
+    await heartbeat();
     await sleep(TICK_MS);
   }
 }

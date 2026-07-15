@@ -70,6 +70,31 @@ node src/selftest.js
 SUPABASE_URL=... SUPABASE_SERVICE_ROLE_KEY=... npm start
 ```
 
+## Monitoring
+
+The worker writes a heartbeat to `lzd_worker_state` on **every loop pass** (started_at,
+last heartbeat, machine id, region, checks completed/failed, browser restarts, last
+error). The dashboard's **"Monitor worker"** card reads it and shows:
+
+- **Online / Stale / Offline** — stale means no heartbeat for >90 s, i.e. the worker is
+  wedged or dead and restocks are silently not being detected. This is the single most
+  important thing to watch.
+- Uptime, checks completed/failed, browser restarts, last error
+- An estimated Fly cost for the current run and per month
+
+Deliberately no Fly API token required: the heartbeat answers "is it running?", which is
+what actually matters. Fly's own dashboard remains the source of truth for billing; the
+cost figure here is derived from the `fly.toml` VM size × observed uptime and is only a
+sanity check.
+
+Useful commands:
+
+```bash
+fly status      # machine state as Fly sees it
+fly logs        # live check output
+fly machine restart <id>
+```
+
 ## Tuning
 
 | Env | Default | Meaning |
