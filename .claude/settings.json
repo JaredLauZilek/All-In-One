@@ -15,7 +15,10 @@
       "Bash(git push *)",
       "Bash(curl -s \"https://api.scraperapi.com/account?api_key=c32ac943491258a079febe514b1977d8\")",
       "Skill(dataviz)",
-      "Skill(dataviz:*)"
+      "Skill(dataviz:*)",
+      "mcp__claude_ai_Supabase__list_edge_functions",
+      "Bash(git rm *)",
+      "Bash(git commit -q -m 'Add project CLAUDE.md; stop tracking tsbuildinfo build artifact *)"
     ]
   }
 }
