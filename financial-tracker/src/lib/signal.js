@@ -67,6 +67,27 @@ export function cycleRead(dirs, latestNote = "") {
   };
 }
 
+// "Fri, 10 Jul 2026 06:31:21 GMT" -> "10 Jul". Used by the Desk's intel panel,
+// where a compact absolute date is what fits.
+export function fmtNewsDate(d) {
+  if (!d) return "";
+  const m = d.replace(/^\w+,\s*/, "").match(/^(\d{1,2}\s+\w{3})/);
+  return m ? m[1] : d.slice(0, 11);
+}
+
+// News cards want recency at a glance instead. Every item in the daily feed is
+// usually <24h old, so "15 Jul" on all ten cards conveys nothing.
+export function fmtAgo(ts) {
+  const n = Number(ts);
+  if (!isFinite(n) || !n) return "—";
+  const mins = Math.floor((Date.now() - n) / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m ago`;
+  if (mins < 1440) return `${Math.floor(mins / 60)}h ago`;
+  const d = Math.floor(mins / 1440);
+  return d === 1 ? "Yesterday" : `${d}d ago`;
+}
+
 // Settings edits levels as strings; the DB stores numbers.
 export function numObj(o) {
   const out = {};

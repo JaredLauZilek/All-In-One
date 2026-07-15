@@ -49,14 +49,18 @@ Data flows in one direction, and the two writers own disjoint fields (they share
 ```
 Finnhub /quote ─┐   (US names only — free tier is US-only)
 Yahoo  /chart ──┤   (52-wk high + currency for ALL; price for the Korean names)
+Bing News RSS ──┤   (DDR5 intel = advisory · semiconductor news = INERT)
                 ▼
         fin-daily-signal (edge fn, Deno, SERVICE ROLE)
    reads fin_app_config + fin_catalysts + fin_contract_log
    computes ONE verdict ──> writes fin_snapshots (one row/day)
+                            + .intel (advisory DDR5 read)
+                            + .news  (10-item reading list, inert)
                             + auto-tracks fin_app_config.peaks (Yahoo 52-wk high)
                                    │
                                    ▼
         React app (anon key) reads fin_snapshots[latest]  ──> Desk tab
+                                                          ──> News tab (.news only)
         React app (anon key) writes fin_app_config / fin_contract_log / fin_catalysts
                                                           ──> Settings tab
 
@@ -75,13 +79,14 @@ financial-tracker/
 │   ├── App.jsx           # data loading + router; passes state via Outlet context
 │   ├── index.css         # Tailwind entry (~10 lines) — no bespoke CSS
 │   ├── components/
-│   │   ├── Layout.jsx    # sidebar shell + header (Refresh now) + disclaimer footer
+│   │   ├── Layout.jsx    # responsive sidebar shell (drawer < lg) + header + footer
 │   │   └── ui.jsx        # design-system primitives — mirror of lazada-monitor's ui.tsx
 │   ├── lib/
 │   │   ├── supabase.js   # client + refreshNow()
-│   │   └── signal.js     # cycleRead() + NAMES + numObj() — display-only helpers
+│   │   └── signal.js     # cycleRead() + NAMES + fmtMoney/fmtAgo/fmtNewsDate + numObj()
 │   └── pages/
 │       ├── Desk.jsx      # verdict, prices, contract trigger, cycle, catalysts, journal
+│       ├── News.jsx      # daily semiconductor reading list (INERT — see below)
 │       └── Settings.jsx  # levels, log a print, catalyst outcomes
 └── supabase/
     ├── functions/fin-daily-signal/index.ts   # the ONLY place verdict logic lives
@@ -122,7 +127,8 @@ All in `public`, all RLS-enabled:
   `entry_levels`, `watch_levels`, `tickers`, `stale_days`.
 - `fin_contract_log` — hand-logged DDR5 contract prints (`direction` = `up|flat|down`).
 - `fin_catalysts` — upcoming events; user-editable `note`, distinct from pre-written `detail`.
-- `fin_snapshots` — one row per `snapshot_date`; written only by the edge function.
+- `fin_snapshots` — one row per `snapshot_date`; written only by the edge function. Carries
+  `intel` (advisory DDR5 read) and `news` (the News tab's 10-item reading list — inert).
 
 **RLS here is deliberately permissive and differs from `lazada-monitor/`.** That app is
 owner-scoped (`user_id = auth.uid()`); this one has no auth at all — the anon role reads
@@ -146,10 +152,11 @@ exposing this app publicly, switch to Supabase Auth and scope policies to a uid.
 - `0004_snapshot_intel.sql` — `snapshots.intel` *(old names)*
 - `0005_fin_prefix.sql` — **the rename to `fin_*`**
 - `0006_fin_daily_signal_cron.sql` — repoints cron at `fin-daily-signal`
+- `0007_fin_snapshot_news.sql` — `fin_snapshots.news` (the News tab's reading list)
 
 Do **not** retro-edit 0001–0004 to the new names: 0002 alters a table 0001 created, so
-rewriting one without the others breaks replay. Replaying `0001 → 0006` on a fresh DB
-yields the correct `fin_` shape. New migrations start at `0007_`.
+rewriting one without the others breaks replay. Replaying `0001 → 0007` on a fresh DB
+yields the correct `fin_` shape. New migrations start at `0008_`.
 
 **Migrations must be applied to the live project** — editing the `.sql` file alone changes
 nothing deployed.
@@ -180,6 +187,14 @@ primary**, stat-card row on top, `divide-y` lists/tables inside cards.
 - The two apps differ only where they must: this one is `.jsx` (the sibling is `.tsx`), has
   no auth (so the sidebar footer shows data sources, not an email + sign-out), and uses
   Outlet context instead of react-query.
+- **The shell is responsive and both apps must stay in step.** Below `lg` the sidebar is an
+  off-canvas drawer behind a hamburger; at `lg`+ it's static (`lg:ml-60`). `lg` is used
+  *only* for shell structure — content grids stay on the house `sm:`/`xl:` pattern. Three
+  things fail silently if you touch it: the header must stay **`z-20`** (aside 40 > backdrop
+  30 > header 20 — a `z-30` header would paint over the backdrop and stay clickable);
+  `NavLink` needs `onClick={() => setOpen(false)}` **as well as** the `pathname` effect
+  (tapping the route you're already on doesn't change `pathname`); and it's `lg:ml-60`, not
+  `ml-60`, or content sits inset 240px behind an off-canvas drawer.
 - **Semantic colours are fixed** and shared with the sibling app's stock statuses:
   emerald = good/`up`/HOLD, amber = watch/WATCH, red = bad/`down`/CAUTION, indigo =
   primary/ENTRY, slate = unknown/`flat`. Drawdown ramps emerald → yellow → amber → red as it
@@ -288,6 +303,30 @@ removed from the Supabase dashboard manually:
   authoritative. Reachability differs by host **and** by runtime — always probe from an
   edge function, not local curl (this is what the now-dead `market-probe` was for).
   Yahoo/Finnhub work from the edge; some hosts 429/503 the datacenter IP.
+- **News: `News:Image` is `http://` — rewrite it or every thumbnail silently vanishes.**
+  The app is served over https, so the browser blocks the raw URL as mixed content. Bing
+  honours the `News:ImageSize` template exactly (`&w=640&h=360&c=14` → a real 640×360 JPEG,
+  ~45KB, verified); 240×135 is 1x-DPR and mushy on a phone.
+- **News: `&mkt=en-us` MUST stay pinned.** Unpinned, Bing geolocates by CALLER IP — from a
+  codespace it returned `mkt=en-in` and Indian startup-funding stories, and this function
+  runs on the Seoul edge. Pinned, the same query returns Samsung/Micron/SK Hynix.
+  ⚠️ **`fetchDdr5Intel()` does NOT pin `mkt` today** — its advisory read is probably being
+  computed from a non-US feed. Fixing it will shift `intel.read`, so it's a deliberate call.
+- **News: dedupe on the extracted `url`, never on `<link>`.** `<link>` is a Bing redirect
+  wrapper (`bing.com/news/apiclick.aspx?...&url=<encoded>`) carrying a **per-request `tid`**,
+  so the same article from two queries looks like two URLs. `realUrl()` unwraps it — which
+  also means cards link straight to the publisher, no Bing hop.
+- **News: merge is round-robin across queries, not a flat recency sort.** A flat sort lets
+  the freshest query flood the list — the first live run returned 4/10 Oregon funding
+  stories from the broad query alone. Interleaving + a Jaccard title guard (≥0.5 collapses
+  "Oregon lands $160M" / "Oregon secures $160M" into one) fixed it to a ~4/4/2 blend.
+- **News: Bing thumbnails expire.** Old snapshots' images 404, so `News.jsx`'s `onError`
+  placeholder is load-bearing — an `image == null` check alone would show broken glyphs.
+- **News: never write `news: {}` on a failed fetch.** The upsert omits the key entirely
+  (`...(news ? { news } : {})`) because PostgREST builds `ON CONFLICT DO UPDATE SET` from the
+  keys present, so an absent key preserves the stored blob (verified live, both directions).
+  Mirroring `intel`'s `?? {}` would let one failed "Refresh now" blank the whole tab until
+  the next day's cron.
 - **Keep files UTF-8.** The original sources arrived with mojibake (garbled em-dashes/
   arrows); the app uses real Unicode (`—`, `→`, `▲▼`, `×`, `≤`, `−`). Watch for stray
   non-ASCII sneaking into places like CSS hex values.
@@ -302,10 +341,15 @@ removed from the Supabase dashboard manually:
 3. **One verdict, one source of truth.** Verdict computation stays in the edge function. The
    frontend displays; it does not decide.
 4. **Manual contract log is sacred.** It's the single highest-signal input. Don't bury it or
-   try to auto-scrape it away — the hand-logging is intentional friction. The **auto
-   market-read** (crawled DDR5/DRAM news in Desk §03 + a logging *suggestion* in Settings)
-   is **advisory only**: it never sets the verdict and never writes `fin_contract_log`. Keep
-   it that way — it assists logging, it doesn't replace it.
+   try to auto-scrape it away — the hand-logging is intentional friction. There are two
+   strictly-ranked tiers of automated news, and they must not blur:
+   - **`intel` — advisory.** The crawled DDR5 read (Desk §03 + a logging *suggestion* in
+     Settings) infers a direction via `dirOf()`. It never sets the verdict and never writes
+     `fin_contract_log`. It assists logging; it doesn't replace it.
+   - **`news` — fully inert.** The News tab is a reading list, one tier stricter. It carries
+     **no `dir` field, no `dirOf()` call, and no `StatusBadge`** — and that absence is the
+     point. `dirOf()` sits in the same file and reusing it is the natural move; it is the
+     wrong one. Inference is what turns a reading list into a signal.
 5. **It monitors, it does not predict.** Framing in copy and UI should never imply price
    forecasting.
 

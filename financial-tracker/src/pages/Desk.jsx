@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { Activity, TrendingDown, CalendarClock, Newspaper } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { Card, CardHeader, StatCard, StatusBadge, EmptyState, DataRow, Textarea, cn } from "../components/ui";
-import { cycleRead, NAMES, fmtMoney } from "../lib/signal";
+import { cycleRead, NAMES, fmtMoney, fmtNewsDate } from "../lib/signal";
 
 export default function Desk({ snap, log, cats, cfg }) {
   const prices = snap?.prices || {};
@@ -242,13 +242,6 @@ function ContractCard({ read, log, intel }) {
       )}
     </Card>
   );
-}
-
-// "Fri, 10 Jul 2026 06:31:21 GMT" -> "10 Jul"
-function fmtNewsDate(d) {
-  if (!d) return "";
-  const m = d.replace(/^\w+,\s*/, "").match(/^(\d{1,2}\s+\w{3})/);
-  return m ? m[1] : d.slice(0, 11);
 }
 
 const READ_LABELS = { up: "Prices rising", down: "Prices softening", flat: "Flat", mixed: "Mixed signals" };

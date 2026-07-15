@@ -10,7 +10,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
-import { checkStock, createContext } from "./lazada.js";
+import { checkStock, createContext, proxyFromEnv } from "./lazada.js";
 import { tgSendMessage, escapeHtml } from "./telegram.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -34,7 +34,7 @@ const log = (...a) => console.log(new Date().toISOString(), ...a);
 // The dashboard reads lzd_worker_state to show whether the monitor is alive. Fly
 // injects FLY_MACHINE_ID / FLY_REGION; they're absent when running locally.
 const STARTED_AT = new Date().toISOString();
-const health = { checksCompleted: 0, checksFailed: 0, browserRestarts: 0, lastError: null };
+const health = { checksCompleted: 0, checksFailed: 0, browserRestarts: 0, lastError: null, kbTotal: 0 };
 
 async function heartbeat() {
   const { error } = await db
@@ -176,11 +176,13 @@ async function processProduct(page, p) {
     health.lastError = parsed.error ?? `status=${parsed.status}`;
   }
 
-  log(`${parsed.status.padEnd(12)} ${parsed.latencyMs}ms  ${(p.title ?? p.url).slice(0, 60)}`);
+  if (parsed.kb) health.kbTotal += parsed.kb;
+  log(`${parsed.status.padEnd(12)} ${parsed.latencyMs}ms  ${parsed.kb ?? "?"}kb  ${(p.title ?? p.url).slice(0, 55)}`);
 }
 
 async function main() {
-  log("worker starting…");
+  const proxy = proxyFromEnv();
+  log(`worker starting… proxy=${proxy ? proxy.server + " (" + (proxy.username ?? "") + ")" : "OFF (plain Fly IP)"}`);
   let browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
   let ctx = await createContext(browser);
   let sinceRecycle = 0;

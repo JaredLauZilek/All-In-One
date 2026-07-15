@@ -40,12 +40,25 @@ export function parseLazadaUrl(url) {
 export const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
+/**
+ * Residential proxy config from env, or null. Kept inert until secrets are set, so the
+ * worker runs on the plain Fly IP by default. DataImpulse gateway looks like
+ * `http://gw.dataimpulse.com:823` with a username that can encode country (…__cr.sg).
+ */
+export function proxyFromEnv() {
+  const server = process.env.PROXY_SERVER;
+  if (!server) return null;
+  return { server, username: process.env.PROXY_USERNAME, password: process.env.PROXY_PASSWORD };
+}
+
 /** One shared, long-lived context: a single warm session (see checkStock). */
 export async function createContext(browser) {
+  const proxy = proxyFromEnv();
   const ctx = await browser.newContext({
     userAgent: UA,
     locale: "en-US",
     viewport: { width: 1366, height: 900 },
+    ...(proxy ? { proxy } : {}),
   });
   await ctx.addInitScript(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
@@ -68,12 +81,19 @@ export async function createContext(browser) {
 export async function checkStock(ctx, url) {
   const start = Date.now();
   let page;
+  let bytes = 0; // measured proxy bandwidth for this check → real $ cost, not a guess
   try {
     page = await ctx.newPage();
+    // Block anything the stock check doesn't need. Every byte here is proxy bandwidth we
+    // pay for, so we keep only what renders the buy box: the document, JS, and API calls.
     await page.route("**/*", (route) => {
       const t = route.request().resourceType();
-      if (t === "image" || t === "font" || t === "media") return route.abort();
+      if (t === "image" || t === "font" || t === "media" || t === "stylesheet") return route.abort();
       return route.continue();
+    });
+    page.on("response", (res) => {
+      const len = Number(res.headers()["content-length"]);
+      if (!Number.isNaN(len)) bytes += len;
     });
 
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
@@ -83,7 +103,7 @@ export async function checkStock(ctx, url) {
     // data, so report it honestly as `blocked` (distinct from a genuine `unknown`) and let
     // the caller's error-backoff slow down until the IP is un-flagged.
     if (/_____tmd_____|\/punish\b|x5secdata=/.test(page.url())) {
-      return { status: "blocked", latencyMs: Date.now() - start, error: "x5sec_anti_bot_challenge" };
+      return { status: "blocked", latencyMs: Date.now() - start, kb: Math.round(bytes / 1024), error: "x5sec_anti_bot_challenge" };
     }
 
     await page
@@ -163,9 +183,10 @@ export async function checkStock(ctx, url) {
       title: info.title ?? ((pageTitle || "").replace(/\s*\|\s*Lazada.*$/, "").trim() || undefined),
       image: info.image ?? undefined,
       latencyMs: Date.now() - start,
+      kb: Math.round(bytes / 1024),
     };
   } catch (e) {
-    return { status: "error", latencyMs: Date.now() - start, error: String(e).slice(0, 200) };
+    return { status: "error", latencyMs: Date.now() - start, kb: Math.round(bytes / 1024), error: String(e).slice(0, 200) };
   } finally {
     await page?.close().catch(() => {});
   }

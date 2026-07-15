@@ -213,6 +213,14 @@ and preview removed the `lazada.ts` duplication entirely — stock logic now exi
   out_of_stock=red, blocked=amber, error=orange, unknown=slate. Reuse the primitives in
   `components/ui.tsx` (Button, Card, StatusBadge, Modal, Switch, StatCard, …) rather than
   ad-hoc markup.
+- **The shell is responsive and is shared-by-convention with `financial-tracker/`** — the two
+  `Layout` files have no shared code, so changes must be applied by hand to both. Below `lg`
+  the sidebar is an off-canvas drawer behind a hamburger; at `lg`+ it's static (`lg:ml-60`).
+  Gotchas: the header must stay **`z-20`** (aside 40 > backdrop 30 > header 20, or the header
+  paints over the backdrop and stays clickable); `NavLink` needs `onClick` to close *as well
+  as* the `pathname` effect (tapping the current route doesn't change `pathname`).
+  Wide tables need `overflow-x-auto` + a `min-w-[…]` (see `Products.tsx`) so the table
+  scrolls inside its card instead of the whole page.
 - Don't fabricate `stock_status` in the DB to "test" while checks are in flight — the next
   real check overwrites it. To test an alert, pause the product first, set
   `out_of_stock`, then reactivate (see README).

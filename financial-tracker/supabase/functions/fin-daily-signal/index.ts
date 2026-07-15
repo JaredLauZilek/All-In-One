@@ -140,6 +140,120 @@ async function fetchDdr5Intel() {
   } catch { return null; }
 }
 
+// ---- Semiconductor news reading list (Bing News RSS; INERT) ----
+//
+// Deliberately distinct from fetchDdr5Intel() above: that one infers a
+// direction (dirOf) and feeds an advisory read + logging suggestion. This one
+// infers NOTHING. It is a reading list for the News tab and must never
+// influence the verdict, the trigger, or fin_contract_log. Do not reuse
+// dirOf() here — its absence is what makes "inert" structurally true.
+//
+// mkt=en-us is PINNED. Without it Bing geolocates by CALLER IP, and this runs
+// on the Seoul edge (ap-northeast-2) — unpinned it serves a non-US feed.
+const NEWS_QUERIES = ["semiconductor industry", "DRAM memory chip prices", "chip stocks"];
+const NEWS_IMG = "&w=640&h=360&c=14"; // fills Bing's News:ImageSize template (w={0}&h={1}&c=14)
+
+// <link> is a Bing redirect wrapper; the publisher URL is its `url` param.
+// Dedupe MUST use this, not the wrapper — the wrapper carries a per-request
+// `tid`, so the same article from two queries yields two different wrappers.
+function realUrl(link: string): string {
+  try {
+    const real = new URL(link).searchParams.get("url"); // URLSearchParams decodes
+    return real && /^https?:\/\//i.test(real) ? real : link;
+  } catch { return link; }
+}
+
+// News:Image is served over http:// — the app is https, so the browser blocks
+// it as mixed content and every thumbnail silently vanishes. Rewrite it.
+function newsImage(raw: string): string | null {
+  if (!raw) return null;
+  const base = raw.trim().replace(/^http:\/\//i, "https://");
+  return /^https:\/\//i.test(base) ? base + NEWS_IMG : null;
+}
+
+const normTitle = (t: string) => t.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+
+// Near-duplicate guard. Exact-title dedupe is not enough: the same event gets
+// four different headlines ("Oregon lands $160M award" / "Oregon secures $160M
+// to cement its future" / ...), which ate 3 of 10 slots on the first live run.
+// Jaccard over significant tokens collapses those to one.
+const STOP = new Set(["the","a","an","and","for","to","of","in","on","as","is","at","by","with","from","its","it","this","that","will","be","are","was","new","says","after","amid","into","out","up","down"]);
+const titleTokens = (t: string) =>
+  new Set(normTitle(t).split(" ").filter((w) => w.length > 2 && !STOP.has(w)));
+
+function jaccard(a: Set<string>, b: Set<string>): number {
+  if (!a.size || !b.size) return 0;
+  let inter = 0;
+  for (const x of a) if (b.has(x)) inter++;
+  return inter / (a.size + b.size - inter);
+}
+
+async function fetchBingNews(q: string) {
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 8000);
+    const r = await fetch(
+      `https://www.bing.com/news/search?q=${encodeURIComponent(q)}&format=rss&mkt=en-us`,
+      { headers: { "User-Agent": UA, "Accept": "application/rss+xml,application/xml" }, signal: ctrl.signal },
+    );
+    clearTimeout(timer);
+    if (!r.ok) return [];
+    const body = await r.text();
+    return body.split("<item>").slice(1).map((raw) => {
+      const seg = raw.split("</item>")[0];
+      const date = clean(between(seg, "<pubDate>", "</pubDate>"));
+      return {
+        title: clean(between(seg, "<title>", "</title>")),
+        url: realUrl(between(seg, "<link>", "</link>").replaceAll("&amp;", "&").trim()),
+        image: newsImage(between(seg, "<News:Image>", "</News:Image>").replaceAll("&amp;", "&")),
+        source: clean(between(seg, "<News:Source>", "</News:Source>")),
+        date,
+        ts: Date.parse(date) || 0,
+      };
+    }).filter((x) => x.title && x.url);
+  } catch { return []; } // one dead query must not kill the merge
+}
+
+async function fetchSemiNews() {
+  try {
+    // Each query's results, newest-first within the query.
+    const perQuery = (await Promise.all(NEWS_QUERIES.map(fetchBingNews)))
+      .map((list) => list.sort((a, b) => b.ts - a.ts));
+
+    // ROUND-ROBIN across queries, not a flat recency sort. A flat sort lets
+    // whichever query happens to be freshest flood the list — the first live
+    // run returned 4/10 Oregon funding stories from the broad query alone.
+    // Interleaving guarantees each query contributes ~a third of the reading
+    // list, which is the whole point of blending industry + memory + stocks.
+    const seenUrl = new Set<string>();
+    const keptTokens: Set<string>[] = [];
+    const items: Awaited<ReturnType<typeof fetchBingNews>> = [];
+    const depth = Math.max(0, ...perQuery.map((l) => l.length));
+
+    for (let i = 0; i < depth && items.length < 10; i++) {
+      for (const list of perQuery) {
+        if (items.length >= 10) break;
+        const it = list[i];
+        if (!it) continue;
+
+        const uk = it.url.split("#")[0].toLowerCase();
+        if (seenUrl.has(uk)) continue;
+        const tk = titleTokens(it.title);
+        if (keptTokens.some((k) => jaccard(tk, k) >= 0.5)) continue; // same story, new headline
+
+        seenUrl.add(uk);
+        keptTokens.push(tk);
+        items.push(it);
+      }
+    }
+
+    items.sort((a, b) => b.ts - a.ts); // display order: newest first
+    return items.length
+      ? { asOf: new Date().toISOString(), source: "Bing News", queries: NEWS_QUERIES, items }
+      : null;
+  } catch { return null; }
+}
+
 Deno.serve(async () => {
   const supabase = createClient(
     Deno.env.get("SUPABASE_URL")!,
@@ -241,16 +355,25 @@ Deno.serve(async () => {
     escalate("CAUTION");
   }
 
-  // 5) DDR5 market intel (advisory only) --------------------------
+  // 5) DDR5 market intel (advisory) + news reading list (inert) ---
+  // Sequential, not Promise.all'd together: fetchSemiNews already puts 3
+  // requests on Bing at once, and 4 concurrent from one IP invites throttling.
   const intel = await fetchDdr5Intel();
+  const news = await fetchSemiNews();
 
   // 6) Write the daily snapshot -----------------------------------
   const today = new Date().toISOString().slice(0, 10);
   const headline = HEADLINES[verdict];
   const { error: wErr } = await supabase.from("fin_snapshots").upsert({
-    snapshot_date: today, prices, verdict, headline, reasons, intel: intel ?? {},
+    snapshot_date: today, prices, verdict, headline, reasons,
+    intel: intel ?? {},
+    // Omit `news` entirely when the fetch failed, rather than writing {}.
+    // PostgREST builds ON CONFLICT DO UPDATE SET from the keys present, so an
+    // absent key preserves the stored blob. Writing {} would let one failed
+    // "Refresh now" blank the whole News tab until tomorrow's cron.
+    ...(news ? { news } : {}),
   }, { onConflict: "snapshot_date" });
   if (wErr) return json({ error: wErr.message }, 500);
 
-  return json({ date: today, verdict, headline, reasons, prices, intel });
+  return json({ date: today, verdict, headline, reasons, prices, intel, news });
 });

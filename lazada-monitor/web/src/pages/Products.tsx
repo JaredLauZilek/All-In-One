@@ -84,8 +84,13 @@ export default function Products() {
           />
         </Card>
       ) : (
-        <Card>
-          <table className="w-full text-left text-sm">
+        // overflow-hidden on the Card: this table is flush to the card edge
+        // (no px inset), so the scroll container would otherwise square off the
+        // rounded-xl corners. min-w forces a scroll rather than crushing 8
+        // columns on a phone.
+        <Card className="overflow-hidden">
+          <div className="overflow-x-auto">
+          <table className="w-full min-w-[48rem] text-left text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-xs text-slate-500">
                 <th className="px-5 py-3 font-medium">Product</th>
@@ -191,6 +196,7 @@ export default function Products() {
               })}
             </tbody>
           </table>
+          </div>
         </Card>
       )}
 
@@ -367,7 +373,8 @@ function HistoryModal({ product, onClose }: { product: Product; onClose: () => v
       {isLoading ? <Spinner /> : !checks?.length ? (
         <p className="py-8 text-center text-sm text-slate-400">No checks recorded yet — the next tick is at most 30s away.</p>
       ) : (
-        <table className="w-full text-left text-sm">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[32rem] text-left text-sm">
           <thead>
             <tr className="border-b border-slate-100 text-xs text-slate-500">
               <th className="py-2 pr-3 font-medium">Time</th>
@@ -389,6 +396,7 @@ function HistoryModal({ product, onClose }: { product: Product; onClose: () => v
             ))}
           </tbody>
         </table>
+        </div>
       )}
     </Modal>
   );

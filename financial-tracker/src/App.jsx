@@ -3,6 +3,7 @@ import { BrowserRouter, Routes, Route, useOutletContext } from "react-router-dom
 import { supabase, refreshNow } from "./lib/supabase";
 import Layout from "./components/Layout";
 import Desk from "./pages/Desk";
+import News from "./pages/News";
 import Settings from "./pages/Settings";
 import { Spinner } from "./components/ui";
 
@@ -46,6 +47,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout onRefresh={doRefresh} busy={busy} lastDate={snap?.snapshot_date} context={ctx} />}>
           <Route path="/" element={<DeskRoute />} />
+          <Route path="/news" element={<NewsRoute />} />
           <Route path="/settings" element={<SettingsRoute />} />
         </Route>
       </Routes>
@@ -57,6 +59,11 @@ export default function App() {
 function DeskRoute() {
   const { snap, log, cats, cfg } = useOutletContext();
   return <Desk snap={snap} log={log} cats={cats} cfg={cfg} />;
+}
+
+function NewsRoute() {
+  const { snap } = useOutletContext();
+  return <News news={snap?.news} lastDate={snap?.snapshot_date} />;
 }
 
 function SettingsRoute() {
