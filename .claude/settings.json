@@ -40,7 +40,12 @@
       "Bash(timeout 200 node src/selftest.js)",
       "Bash(git commit -q -m 'Fix wrong stock status: replace HTTP checker with Playwright worker *)",
       "Bash(git commit *)",
-      "Bash(timeout 120 node src/selftest.js \"https://www.lazada.sg/products/pdp-i13696744288-s124594658123.html\")"
+      "Bash(timeout 120 node src/selftest.js \"https://www.lazada.sg/products/pdp-i13696744288-s124594658123.html\")",
+      "Bash(curl -s -o /dev/null -w \"http=%{http_code}\\\\n\" --max-time 3 http://localhost:5173/)",
+      "Bash(echo \"exit=$?\")",
+      "Bash(nohup npm run dev)",
+      "Bash(curl -s -o /dev/null -w \"localhost:5173 -> http=%{http_code}\\\\n\" --max-time 5 http://localhost:5173/)",
+      "Bash(node -e \"const s=require\\('./package.json'\\).scripts; Object.entries\\(s\\).forEach\\(\\([k,v]\\)=>console.log\\('  npm run '+k.padEnd\\(12\\)+' -> '+v\\)\\)\")"
     ]
   }
 }

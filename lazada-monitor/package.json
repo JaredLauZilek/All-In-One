@@ -1,0 +1,12 @@
+{
+  "name": "lazada-monitor",
+  "private": true,
+  "description": "Convenience scripts so you can run things from lazada-monitor/ without remembering which subfolder each one lives in. web/ and worker/ remain independent npm projects (they deploy to different places and must not share a node_modules).",
+  "scripts": {
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "worker": "npm --prefix worker start",
+    "selftest": "npm --prefix worker run selftest",
+    "install:all": "npm --prefix web install && npm --prefix worker install"
+  }
+}
