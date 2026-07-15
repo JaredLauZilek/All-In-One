@@ -10,7 +10,7 @@
 
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
-import { checkStock, createContext, proxyFromEnv } from "./lazada.js";
+import { checkStock, proxyFromEnv, PROXY_ENABLED } from "./lazada.js";
 import { tgSendMessage, escapeHtml } from "./telegram.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -139,8 +139,8 @@ async function notifyRestock(p, parsed) {
   log(sent.ok ? `ALERT sent: ${p.title}` : `ALERT FAILED: ${sent.error}`);
 }
 
-async function processProduct(page, p) {
-  const parsed = await checkStock(page, p.url);
+async function processProduct(browser, p) {
+  const parsed = await checkStock(browser, p.url);
   const real = parsed.status === "in_stock" || parsed.status === "out_of_stock";
 
   await db.from("lzd_checks").insert({
@@ -183,18 +183,22 @@ async function processProduct(page, p) {
 async function main() {
   const proxy = proxyFromEnv();
   log(`worker starting… proxy=${proxy ? proxy.server + " (" + (proxy.username ?? "") + ")" : "OFF (plain Fly IP)"}`);
-  let browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
-  let ctx = await createContext(browser);
+  // Chromium needs the "per-context" placeholder at launch to allow each context to set
+  // its own proxy (the per-check sticky IP). Without a proxy, launch normally.
+  const launchOpts = {
+    headless: true,
+    args: ["--no-sandbox", "--disable-dev-shm-usage"],
+    ...(PROXY_ENABLED ? { proxy: { server: "per-context" } } : {}),
+  };
+  let browser = await chromium.launch(launchOpts);
   let sinceRecycle = 0;
 
-  // One warm context (stable session); checkStock() opens and closes an ephemeral page
-  // per check so Lazada's background JS can't accumulate CPU between checks.
+  // checkStock() opens a fresh context (one sticky proxy IP) + ephemeral page per check
+  // and closes both, so neither proxy identity nor Lazada's background JS accumulates.
   async function recycle() {
     log("recycling browser");
-    await ctx.close().catch(() => {});
     await browser.close().catch(() => {});
-    browser = await chromium.launch({ headless: true, args: ["--no-sandbox", "--disable-dev-shm-usage"] });
-    ctx = await createContext(browser);
+    browser = await chromium.launch(launchOpts);
     sinceRecycle = 0;
     health.browserRestarts++;
   }
@@ -220,7 +224,7 @@ async function main() {
         .sort((a, b) => (a.last_checked_at ?? "").localeCompare(b.last_checked_at ?? ""));
 
       for (const p of due) {
-        await processProduct(ctx, p);
+        await processProduct(browser, p);
         if (++sinceRecycle >= BROWSER_RECYCLE_CHECKS) await recycle();
         // Small jitter so requests aren't perfectly metronomic.
         await sleep(Math.random() * JITTER_MS);

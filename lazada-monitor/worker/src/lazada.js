@@ -7,6 +7,8 @@
 // signal is whether a real "Add to Cart" / "Buy Now" button exists in the loaded page.
 // Verified 2026-07: OOS box -> no cart button; in-stock pack -> cart button present.
 
+import { randomBytes } from "node:crypto";
+
 const OOS = /out of stock|sold out|currently unavailable|no longer available|notify me/i;
 const BUYABLE = /add to cart|buy now|add to basket/i;
 const CAPTCHA = /slider|captcha|punish|unusual traffic|verify to continue/i;
@@ -41,9 +43,8 @@ export const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
 
 /**
- * Residential proxy config from env, or null. Kept inert until secrets are set, so the
- * worker runs on the plain Fly IP by default. DataImpulse gateway looks like
- * `http://gw.dataimpulse.com:823` with a username that can encode country (…__cr.sg).
+ * Base residential proxy config from env, or null (inert → plain Fly IP). DataImpulse
+ * gateway is `http://gw.dataimpulse.com:823`; the base username is enriched per check.
  */
 export function proxyFromEnv() {
   const server = process.env.PROXY_SERVER;
@@ -51,9 +52,28 @@ export function proxyFromEnv() {
   return { server, username: process.env.PROXY_USERNAME, password: process.env.PROXY_PASSWORD };
 }
 
-/** One shared, long-lived context: a single warm session (see checkStock). */
+/** Does the launched browser need the per-context proxy placeholder? (Chromium requires it.) */
+export const PROXY_ENABLED = !!process.env.PROXY_SERVER;
+
+/**
+ * Per-check proxy: pin ONE sticky residential IP for every request in this check via a
+ * random `sessid`, and rotate to a fresh IP on the next check. This is essential —
+ * DataImpulse rotating mode otherwise hands out a *different* IP per request, so a single
+ * page load scatters its document/scripts/XHRs across many IPs at once, which Lazada
+ * instantly bot-flags (→ x5sec punish). `__cr.sg` keeps the exit IP in Singapore.
+ * DataImpulse username syntax: `login__cr.sg;sessid.<id>`.
+ */
+function perCheckProxy() {
+  const base = proxyFromEnv();
+  if (!base) return undefined;
+  const country = process.env.PROXY_COUNTRY || "sg";
+  const sessid = randomBytes(6).toString("hex");
+  return { server: base.server, username: `${base.username}__cr.${country};sessid.${sessid}`, password: base.password };
+}
+
+/** A fresh context per check — carries the per-check sticky-proxy identity. */
 export async function createContext(browser) {
-  const proxy = proxyFromEnv();
+  const proxy = perCheckProxy();
   const ctx = await browser.newContext({
     userAgent: UA,
     locale: "en-US",
@@ -78,11 +98,32 @@ export async function createContext(browser) {
  *    CPU continuously and, at a 5s cadence on a shared VM, snowballs into 45s+ timeouts.
  *    An ephemeral page bounds CPU to a short burst per check. (Measured 2026-07.)
  */
-export async function checkStock(ctx, url) {
+const MAX_PROXY_RETRIES = 4; // ~25% of residential IPs are burnt for Lazada; retry a fresh one
+
+/**
+ * Retry wrapper: a `blocked` result means we drew an IP that's already flagged on Lazada
+ * (measured ~25% of the DataImpulse pool). A fresh context = a fresh IP, so just try
+ * again. At ~75% clean, 4 tries clears >99%. Bandwidth from every attempt is summed so
+ * the cost figure stays honest. No proxy → no retry (the Fly IP won't change).
+ */
+export async function checkStock(browser, url) {
+  const attempts = PROXY_ENABLED ? MAX_PROXY_RETRIES : 1;
+  let last, kb = 0;
+  for (let i = 0; i < attempts; i++) {
+    last = await checkStockOnce(browser, url);
+    kb += last.kb ?? 0;
+    if (last.status !== "blocked") break; // usable IP → done
+  }
+  return { ...last, kb };
+}
+
+async function checkStockOnce(browser, url) {
   const start = Date.now();
+  let ctx;
   let page;
-  let bytes = 0; // measured proxy bandwidth for this check → real $ cost, not a guess
+  let bytes = 0; // measured proxy bandwidth for this attempt → real $ cost, not a guess
   try {
+    ctx = await createContext(browser); // fresh context = one sticky proxy IP for this attempt
     page = await ctx.newPage();
     // Block anything the stock check doesn't need. Every byte here is proxy bandwidth we
     // pay for, so we keep only what renders the buy box: the document, JS, and API calls.
@@ -188,6 +229,6 @@ export async function checkStock(ctx, url) {
   } catch (e) {
     return { status: "error", latencyMs: Date.now() - start, kb: Math.round(bytes / 1024), error: String(e).slice(0, 200) };
   } finally {
-    await page?.close().catch(() => {});
+    await ctx?.close().catch(() => {}); // closes the page too
   }
 }
