@@ -61,5 +61,7 @@ function DeskRoute() {
 
 function SettingsRoute() {
   const { cfg, log, cats, reload, snap } = useOutletContext();
-  return <Settings cfg={cfg} log={log} cats={cats} reload={reload} intel={snap?.intel} />;
+  // prices carries each ticker's currency — Settings needs it so the peak
+  // column and level inputs are labelled in the right currency, not always "$".
+  return <Settings cfg={cfg} log={log} cats={cats} reload={reload} intel={snap?.intel} prices={snap?.prices} />;
 }

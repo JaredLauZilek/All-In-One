@@ -30,21 +30,46 @@ function json(body: unknown, status = 200) {
 }
 const daysBetween = (a: number, b: number) => Math.floor((a - b) / DAY_MS);
 
-// ---- Yahoo 52-week high (peak source; free, no key) ----
-async function yahoo52wHigh(sym: string): Promise<number | null> {
+// ---- Yahoo quote (peak source + price fallback + currency; free, no key) ----
+//
+// Yahoo is the ONLY source for the non-US names: Finnhub's free tier returns
+// {c:0} for the Korean listings (000660.KS, 005930.KS) and the OTC ADRs
+// (HXSCL, SSNLF) — verified 2026-07. It's also the only source of `currency`,
+// which the UI needs so it never renders a KRW price behind a "$".
+type YahooQuote = { price: number | null; prevClose: number | null; high52: number | null; currency: string };
+
+async function yahooQuote(sym: string): Promise<YahooQuote | null> {
   try {
     const r = await fetch(
-      `https://query1.finance.yahoo.com/v8/finance/chart/${sym}?range=1y&interval=1d`,
+      `https://query1.finance.yahoo.com/v8/finance/chart/${encodeURIComponent(sym)}?range=1y&interval=1d`,
       { headers: { "User-Agent": UA, "Accept": "application/json" } },
     );
     if (!r.ok) return null;
     const j = await r.json();
     const res = j?.chart?.result?.[0];
-    const metaHigh = Number(res?.meta?.fiftyTwoWeekHigh) || 0;
-    if (metaHigh > 0) return metaHigh;
-    const highs = (res?.indicators?.quote?.[0]?.high ?? []).filter((x: number) => typeof x === "number");
-    const candleHigh = highs.length ? Math.max(...highs) : 0;
-    return candleHigh > 0 ? Math.round(candleHigh * 100) / 100 : null;
+    const meta = res?.meta;
+    if (!meta) return null;
+
+    let high52 = Number(meta.fiftyTwoWeekHigh) || 0;
+    if (!high52) {
+      const highs = (res?.indicators?.quote?.[0]?.high ?? []).filter((x: number) => typeof x === "number");
+      high52 = highs.length ? Math.round(Math.max(...highs) * 100) / 100 : 0;
+    }
+
+    // NOT meta.chartPreviousClose — that is the close *before the requested
+    // range* (i.e. a year ago at range=1y), which turns the day-change into a
+    // ~+600% nonsense figure. Use the real previous close, or failing that the
+    // second-to-last daily candle (the last one is today).
+    const closes = (res?.indicators?.quote?.[0]?.close ?? []).filter((x: number) => typeof x === "number");
+    const prevClose = Number(meta.regularMarketPreviousClose) ||
+      (closes.length >= 2 ? closes[closes.length - 2] : null);
+
+    return {
+      price: Number(meta.regularMarketPrice) || null,
+      prevClose: prevClose || null,
+      high52: high52 || null,
+      currency: String(meta.currency ?? "USD").toUpperCase(),
+    };
   } catch { return null; }
 }
 
@@ -144,22 +169,41 @@ Deno.serve(async () => {
   let peaksChanged = false;
   for (const t of tickers) {
     try {
-      const q = await fetch(`${FINNHUB}/quote?symbol=${t}&token=${key}`).then((r) => r.json());
-      if (!q || typeof q.c !== "number" || q.c === 0) { prices[t] = { error: true }; continue; }
-      const prevPeak = Number(peaks[t]) || 0;
-      const yhi = await yahoo52wHigh(t);
-      const peak = Math.max(prevPeak, yhi ?? 0, q.c);
-      if (peak !== prevPeak) { trackedPeaks[t] = peak; peaksChanged = true; }
-      const drawdown = peak > 0 ? ((peak - q.c) / peak) * 100 : 0;
-      prices[t] = { price: q.c, peak, drawdown, prevClose: q.pc, dayChangePct: q.dp ?? 0 };
+      // Finnhub stays primary for the US names (it's the live intraday feed).
+      // Yahoo is always fetched too: it carries the 52-week high and currency,
+      // and is the price fallback for anything Finnhub's free tier misses.
+      const q = await fetch(`${FINNHUB}/quote?symbol=${encodeURIComponent(t)}&token=${key}`)
+        .then((r) => r.json())
+        .catch(() => null);
+      const y = await yahooQuote(t);
 
+      const finnhubPrice = q && typeof q.c === "number" && q.c !== 0 ? q.c : null;
+      const price = finnhubPrice ?? y?.price ?? null;
+      if (!price) { prices[t] = { error: true }; continue; }
+
+      const source = finnhubPrice ? "finnhub" : "yahoo";
+      const currency = y?.currency ?? "USD";
+      const prevClose = (finnhubPrice ? Number(q.pc) : y?.prevClose) || null;
+      const dayChangePct = finnhubPrice
+        ? (typeof q.dp === "number" ? q.dp : 0)
+        : (prevClose ? ((price - prevClose) / prevClose) * 100 : 0);
+
+      const prevPeak = Number(peaks[t]) || 0;
+      const peak = Math.max(prevPeak, y?.high52 ?? 0, price);
+      if (peak !== prevPeak) { trackedPeaks[t] = peak; peaksChanged = true; }
+      const drawdown = peak > 0 ? ((peak - price) / peak) * 100 : 0;
+
+      prices[t] = { price, peak, drawdown, prevClose, dayChangePct, currency, source };
+
+      // Levels are stored in each ticker's own listing currency — no FX
+      // conversion anywhere, so a KRW level only ever compares to a KRW price.
       const entry = Number(entryLevels[t]) || 0;
       const watch = Number(watchLevels[t]) || 0;
-      if (entry && q.c <= entry) {
-        reasons.push(`${t} at $${q.c} — at/below your entry level $${entry}.`);
+      if (entry && price <= entry) {
+        reasons.push(`${t} at ${price} ${currency} — at/below your entry level ${entry}.`);
         escalate("ENTRY");
-      } else if (watch && q.c <= watch) {
-        reasons.push(`${t} at $${q.c} — nearing your watch level $${watch}.`);
+      } else if (watch && price <= watch) {
+        reasons.push(`${t} at ${price} ${currency} — nearing your watch level ${watch}.`);
         escalate("WATCH");
       }
     } catch (_) { prices[t] = { error: true }; }

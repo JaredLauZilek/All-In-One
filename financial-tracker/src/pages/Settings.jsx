@@ -2,12 +2,12 @@ import { useState, useRef } from "react";
 import { Trash2 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { Card, CardHeader, Button, Input, Select, Textarea, StatusBadge, Switch, cn } from "../components/ui";
-import { numObj } from "../lib/signal";
+import { numObj, fmtMoney } from "../lib/signal";
 
-export default function Settings({ cfg, log, cats, reload, intel }) {
+export default function Settings({ cfg, log, cats, reload, intel, prices }) {
   return (
     <div className="space-y-6">
-      <LevelsCard cfg={cfg} reload={reload} />
+      <LevelsCard cfg={cfg} reload={reload} prices={prices} />
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <PrintsCard log={log} reload={reload} intel={intel} />
         <CatalystsCard cats={cats} reload={reload} />
@@ -18,7 +18,7 @@ export default function Settings({ cfg, log, cats, reload, intel }) {
 
 /* ---------------- levels ---------------- */
 
-function LevelsCard({ cfg, reload }) {
+function LevelsCard({ cfg, reload, prices }) {
   const peaks = cfg?.peaks || {}; // auto-tracked by the edge function; read-only here
   const [entry, setEntry] = useState(cfg?.entry_levels || {});
   const [watch, setWatch] = useState(cfg?.watch_levels || {});
@@ -45,23 +45,29 @@ function LevelsCard({ cfg, reload }) {
         <p className="mb-4 text-xs leading-relaxed text-slate-500">
           <b>Entry</b> = the price you'd consider a decision point. <b>Watch</b> = getting close.
           <b> Peak</b> is auto-tracked — the 52-week high (via Yahoo), ratcheted up on new highs. You don't set it.
+          Enter levels in each listing's <b>own currency</b> (shown per row) — nothing is FX-converted.
         </p>
         <div className="overflow-x-auto">
           <table className="w-full min-w-[34rem] max-w-2xl text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left">
                 <Th>Ticker</Th>
-                <Th>Peak $ · auto</Th>
-                <Th>Entry ≤ $</Th>
-                <Th>Watch ≤ $</Th>
+                <Th>Peak · auto</Th>
+                <Th>Entry ≤</Th>
+                <Th>Watch ≤</Th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
-              {tickers.map((t) => (
+              {tickers.map((t) => {
+                const ccy = prices?.[t]?.currency ?? "USD";
+                return (
                 <tr key={t}>
-                  <td className="py-2.5 pr-3 font-mono text-sm font-semibold text-slate-900">{t}</td>
+                  <td className="py-2.5 pr-3">
+                    <span className="font-mono text-sm font-semibold text-slate-900">{t}</span>
+                    <span className="ml-1.5 font-mono text-[10px] text-slate-400">{ccy}</span>
+                  </td>
                   <td className="py-2.5 pr-3 font-mono text-sm text-slate-400">
-                    {peaks[t] != null && peaks[t] !== "" ? `$${Number(peaks[t]).toLocaleString()}` : "—"}
+                    {peaks[t] != null && peaks[t] !== "" ? fmtMoney(peaks[t], ccy) : "—"}
                   </td>
                   <td className="py-2.5 pr-3">
                     <Input
@@ -78,7 +84,8 @@ function LevelsCard({ cfg, reload }) {
                     />
                   </td>
                 </tr>
-              ))}
+                );
+              })}
             </tbody>
           </table>
         </div>

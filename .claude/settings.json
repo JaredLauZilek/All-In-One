@@ -63,7 +63,10 @@
       "Bash(curl -s -o /dev/null -w 'http=%{http_code}\\\\n' 'https://vjqbircarzxcxrdzlyxj.supabase.co/rest/v1/fin_snapshots?select=snapshot_date&limit=1' -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcWJpcmNhcnp4Y3hyZHpseXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDQ3MjUsImV4cCI6MjA5OTE4MDcyNX0.TnxX82YmAlbXMvr3Ll4r4UB7d4rs3fcxrb-ozGB3KKE' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcWJpcmNhcnp4Y3hyZHpseXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDQ3MjUsImV4cCI6MjA5OTE4MDcyNX0.TnxX82YmAlbXMvr3Ll4r4UB7d4rs3fcxrb-ozGB3KKE')",
       "Bash(curl -s -w '\\\\nhttp=%{http_code}\\\\n' -X PATCH https://vjqbircarzxcxrdzlyxj.supabase.co/rest/v1/fin_app_config?id=eq.1 -H 'apikey: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcWJpcmNhcnp4Y3hyZHpseXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDQ3MjUsImV4cCI6MjA5OTE4MDcyNX0.TnxX82YmAlbXMvr3Ll4r4UB7d4rs3fcxrb-ozGB3KKE' -H 'Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InZqcWJpcmNhcnp4Y3hyZHpseXhqIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2MDQ3MjUsImV4cCI6MjA5OTE4MDcyNX0.TnxX82YmAlbXMvr3Ll4r4UB7d4rs3fcxrb-ozGB3KKE' -H 'Content-Type: application/json' -H 'Prefer: return=representation' -d '{\"stale_days\":40}')",
       "Bash(pkill -f \"vite\")",
-      "Bash(git check-ignore *)"
+      "Bash(git check-ignore *)",
+      "mcp__claude_ai_Supabase__get_logs",
+      "Bash(python3 -c ' *)",
+      "Bash(npx vercel *)"
     ]
   }
 }

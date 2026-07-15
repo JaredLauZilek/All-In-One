@@ -20,8 +20,9 @@ primary_region = 'sin'
   TICK_MS = '2000'
 
 [[vm]]
-  # shared-cpu-1x could NOT run Chromium: ~38% CPU steal starved page rendering, so
-  # every check hit the 45s timeout while plain curl fetched Lazada in 2.5s. Chromium
-  # needs a real core. shared-cpu-2x/2gb is the tested floor. (Measured 2026-07.)
-  size = 'shared-cpu-2x'
-  memory = '2gb'
+  # History: shared-cpu-1x could NOT run Chromium (~38% CPU steal → 45s timeouts while
+  # plain curl fetched Lazada in 2.5s). 2 cores fixed that for a 10s interval; 4 cores
+  # give the headroom for a SOLID 5s interval. Memory is generous — actual use is ~310MB,
+  # so 1gb is ample (dropping from 2gb also saved ~$5/mo of unused RAM). (Measured 2026-07.)
+  size = 'shared-cpu-4x'
+  memory = '1gb'

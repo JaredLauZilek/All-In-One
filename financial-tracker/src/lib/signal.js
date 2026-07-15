@@ -6,12 +6,33 @@
 
 // Display names under each ticker. DRAM is Roundhill's US-listed memory ETF,
 // so it should resolve on Finnhub despite the "not an equity" caveat.
+//
+// The two Korean names are the PRIMARY listings and price only via Yahoo —
+// Finnhub's free tier doesn't cover them. Their US OTC ADRs were deliberately
+// not added: SK Hynix's (HXSCL/HXSCY/SKHYF) return no data at all, and
+// Samsung's (SSNLF) is stale to the point of being wrong (price == prevClose
+// == 52w high). Don't "helpfully" add them back without checking a live quote.
 export const NAMES = {
   MU: "Micron Technology",
   SNDK: "SanDisk",
   WDC: "Western Digital",
   DRAM: "Roundhill Memory ETF",
+  "000660.KS": "SK Hynix · Seoul",
+  "005930.KS": "Samsung Electronics · Seoul",
 };
+
+// Prices are shown in each listing's OWN currency — there is no FX conversion
+// anywhere in this app, so a KRW price must never render behind a "$".
+// Intl handles the per-currency decimal rules (USD 2dp, KRW 0dp).
+export function fmtMoney(v, currency = "USD") {
+  const n = Number(v);
+  if (!isFinite(n)) return "—";
+  try {
+    return new Intl.NumberFormat("en-US", { style: "currency", currency }).format(n);
+  } catch {
+    return `${n.toLocaleString()} ${currency}`;
+  }
+}
 
 // `dirs` is newest-first. `tone` maps onto the shared design-system colours:
 // good = emerald, warn = amber, bad = red. `short` is for the stat tile, which

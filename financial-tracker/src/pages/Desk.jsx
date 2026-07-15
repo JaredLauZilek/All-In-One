@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { Activity, TrendingDown, CalendarClock, Newspaper } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { Card, CardHeader, StatCard, StatusBadge, EmptyState, DataRow, Textarea, cn } from "../components/ui";
-import { cycleRead, NAMES } from "../lib/signal";
+import { cycleRead, NAMES, fmtMoney } from "../lib/signal";
 
 export default function Desk({ snap, log, cats, cfg }) {
   const prices = snap?.prices || {};
@@ -160,7 +160,7 @@ function PriceCell({ t, d }) {
             {name && <span className="truncate text-xs text-slate-400">{name}</span>}
           </div>
           <p className="mt-1 font-mono text-xl font-semibold text-slate-900">
-            ${Number(d.price).toLocaleString()}
+            {fmtMoney(d.price, d.currency)}
           </p>
         </div>
         <div className="text-right">
@@ -174,7 +174,7 @@ function PriceCell({ t, d }) {
         <div className={cn("h-full rounded-full", tone.bar)} style={{ width: `${Math.min(100, dd)}%` }} />
       </div>
       <p className="mt-2 font-mono text-[11px] text-slate-400">
-        peak ${Number(d.peak).toLocaleString()} · −40/−60% avg zone
+        peak {fmtMoney(d.peak, d.currency)} · −40/−60% avg zone
       </p>
     </div>
   );

@@ -14,14 +14,13 @@ const FETCH_METHOD_LABEL: Record<string, string> = {
 
 // A check takes ~2.75s (browser page load). Lazada does NOT throttle by IP/session —
 // plain curl always returns in ~2.8s; every apparent "throttle" during development was
-// really CPU starvation on an undersized Fly VM. On shared-cpu-2x the sustainable floor
-// is ~10s (loop has headroom, near-zero timeouts). 5s also works but runs the VM at
-// capacity, so an occasional page hiccup times out one check (the loop recovers next
-// tick). Below 5s, or rock-solid 5s, needs more CPU (shared-cpu-4x). This is a minimum
-// gap between checks, not a guarantee — watch median speed on the dashboard.
+// really CPU starvation on an undersized Fly VM. On the current shared-cpu-4x VM, 5s is
+// solid (the 4 cores give headroom, ~0 timeouts) → ~8s detection. This is a minimum gap
+// between checks, not a guarantee — watch median speed on the dashboard; a rising median
+// means the VM is under-resourced, not that Lazada is throttling.
 const INTERVALS = [
-  { secs: 5, label: "5 sec (VM at capacity)" },
-  { secs: 10, label: "10 sec (recommended)" },
+  { secs: 5, label: "5 sec (fastest)" },
+  { secs: 10, label: "10 sec" },
   { secs: 15, label: "15 sec" },
   { secs: 30, label: "30 sec" },
   { secs: 60, label: "1 min" },

@@ -47,7 +47,8 @@ Data flows in one direction, and the two writers own disjoint fields (they share
 `fin_app_config` row but never set the same columns):
 
 ```
-Finnhub /quote ─┐
+Finnhub /quote ─┐   (US names only — free tier is US-only)
+Yahoo  /chart ──┤   (52-wk high + currency for ALL; price for the Korean names)
                 ▼
         fin-daily-signal (edge fn, Deno, SERVICE ROLE)
    reads fin_app_config + fin_catalysts + fin_contract_log
@@ -235,15 +236,38 @@ removed from the Supabase dashboard manually:
   client to it, either keep the anon JWT for `refreshNow()` or redeploy with
   `verify_jwt: false` + custom auth. (`lazada-monitor/` uses the publishable key; that's
   why it works there and would break here.)
-- **Finnhub free-tier coverage.** `/quote` returns `{c:0}` for symbols it doesn't cover;
-  the code renders those as "unavailable". Verify tickers against the active plan; edit the
-  list in Settings.
+- **Two price sources, and Yahoo is not optional.** Finnhub is primary; **Yahoo is fetched
+  for every ticker** because it carries the 52-week high *and* `currency`, *and* is the price
+  fallback. Finnhub's free tier is **US-only** — `/quote` returns `{c:0}` for the Korean
+  listings, so `000660.KS` / `005930.KS` are priced entirely by Yahoo. `prices[t].source`
+  records which one answered. If Yahoo ever dies, the Korean names go dark, not just stale.
+- **Tickers are NOT editable in the UI.** Settings only edits entry/watch levels for the
+  tickers already in `fin_app_config.tickers` (a `text[]`, *not* jsonb — `ARRAY[...]::text[]`).
+  Adding or removing one is a SQL update. After changing it, **re-run the function** or the
+  dashboard keeps rendering the previous snapshot's ticker set. Also prune the old symbol
+  out of `peaks` — peaks are auto-tracked and otherwise linger forever.
+- **Symbols that were tried and rejected (2026-07-15) — don't re-add without a live quote.**
+  SK Hynix has **no working US symbol**: `HXSCL`, `HXSCY`, `SKHYF`, `HXSCF`, `SKHYY` return
+  nothing on *either* source (thin unsponsored OTC ADR). Samsung's US ADR `SSNLF` resolves
+  but is **stale garbage** — price == prevClose == 52w high, so it shows a permanent 0%
+  drawdown. Working non-US alternates if ever needed: `HY9H.F` (SK Hynix, Frankfurt, EUR)
+  and `SMSN.IL` (Samsung GDR, London, USD).
+- **No FX conversion anywhere.** Each ticker is priced, levelled and displayed in its **own**
+  listing currency; a KRW level only ever compares against a KRW price. `fmtMoney()` in
+  `lib/signal.js` formats from `prices[t].currency` — never hardcode `$`, or a ₩2,082,000
+  quote renders as "$2,082,000". Drawdown is a ratio, so it's currency-agnostic and safe.
 - **`daysBetween(a, b) = floor((a-b)/DAY_MS)` — argument order carries the sign.**
   Staleness uses `(now, logged_at)` (positive = days old); catalyst proximity uses
   `(event_date, now)` (0–3 = upcoming). Get the order wrong and the rule silently never fires.
 - **`fin_snapshots` upserts on `snapshot_date`** — re-running the function the same day
   overwrites that day's row (idempotent, intended).
 - **`fin_app_config` is a hard single row.** Always `update … eq('id', 1)`; never insert.
+- **Yahoo's `chartPreviousClose` is a trap — never use it for the day change.** It is the
+  close *before the requested range*, so at `range=1y` it's the price a **year** ago: it
+  reported SK Hynix at "+597% today" before this was caught. `yahooQuote()` uses
+  `meta.regularMarketPreviousClose`, falling back to the second-to-last daily candle. The
+  bug is invisible on the US names (Finnhub supplies `dp` there), so it only ever shows up
+  on the Yahoo-priced ones.
 - **Peaks are auto-tracked, not user-set.** Finnhub's free tier has **no** historical/52-week
   high (`/stock/metric` and `/stock/candle` are premium), so the peak comes from **Yahoo
   Finance** (`query1.finance.yahoo.com/v8/finance/chart/{sym}` → `meta.fiftyTwoWeekHigh`,
