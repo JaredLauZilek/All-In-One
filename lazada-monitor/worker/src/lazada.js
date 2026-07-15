@@ -77,6 +77,15 @@ export async function checkStock(ctx, url) {
     });
 
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+
+    // Alibaba/Lazada anti-bot: sustained high-frequency polling gets redirected to an
+    // x5sec "punish" challenge (…/_____tmd_____/punish?x5secdata=…). It carries no product
+    // data, so report it honestly as `blocked` (distinct from a genuine `unknown`) and let
+    // the caller's error-backoff slow down until the IP is un-flagged.
+    if (/_____tmd_____|\/punish\b|x5secdata=/.test(page.url())) {
+      return { status: "blocked", latencyMs: Date.now() - start, error: "x5sec_anti_bot_challenge" };
+    }
+
     await page
       .waitForFunction(
         () => {
