@@ -12,7 +12,10 @@
       "mcp__claude_ai_Supabase__get_advisors",
       "Bash(git add *)",
       "Bash(git commit -m 'Add Lazada restock monitor \\(Supabase + React + Telegram alerts\\) *)",
-      "Bash(git push *)"
+      "Bash(git push *)",
+      "Bash(curl -s \"https://api.scraperapi.com/account?api_key=c32ac943491258a079febe514b1977d8\")",
+      "Skill(dataviz)",
+      "Skill(dataviz:*)"
     ]
   }
 }
