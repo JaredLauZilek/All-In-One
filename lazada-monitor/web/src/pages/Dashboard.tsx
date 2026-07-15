@@ -28,10 +28,21 @@ export default function Dashboard() {
   const { products, notifs, checks } = data;
   const inStock = products.filter((p) => p.stock_status === "in_stock").length;
   const outStock = products.filter((p) => p.stock_status === "out_of_stock").length;
-  const lastCheck = checks[0]?.checked_at;
-  const blockedRate = checks.length ? Math.round((checks.filter((c) => c.status === "blocked").length / checks.length) * 100) : 0;
-  const directRate = checks.length ? Math.round((checks.filter((c) => c.fetch_method === "direct").length / checks.length) * 100) : 100;
   const recentChanges = products.filter((p) => p.last_status_change_at).slice(0, 8);
+
+  // Stats are computed over browser checks only. Rows from the retired HTTP checker are
+  // excluded: their statuses were unreliable (it reported in_stock unconditionally) and
+  // its fetch tiers no longer exist, so mixing them in would be misleading.
+  const browserChecks = checks.filter((c) => c.fetch_method === "browser");
+  const lastCheck = browserChecks[0]?.checked_at;
+  const blockedRate = browserChecks.length
+    ? Math.round((browserChecks.filter((c) => c.status === "blocked").length / browserChecks.length) * 100)
+    : 0;
+  const failedRate = browserChecks.length
+    ? Math.round((browserChecks.filter((c) => c.status !== "in_stock" && c.status !== "out_of_stock").length / browserChecks.length) * 100)
+    : 0;
+  const latencies = browserChecks.map((c) => c.latency_ms ?? 0).filter(Boolean).sort((a, b) => a - b);
+  const medianMs = latencies.length ? latencies[Math.floor(latencies.length / 2)] : 0;
 
   return (
     <div className="space-y-6">
@@ -70,12 +81,25 @@ export default function Dashboard() {
         <div className="space-y-6">
           <WorkerCard />
           <Card>
-            <CardHeader title="Checker health" subtitle="Last 50 checks" />
+            <CardHeader title="Check quality" subtitle="Recent browser checks" />
             <div className="space-y-4 px-5 py-4">
-              <HealthRow label="Last check" value={lastCheck ? formatDistanceToNow(new Date(lastCheck), { addSuffix: true }) : "never"} />
-              <HealthRow label="Direct fetch rate" value={`${directRate}%`} good={directRate > 70} />
-              <HealthRow label="Blocked rate" value={`${blockedRate}%`} good={blockedRate < 10} />
-              <HealthRow label="Checks logged" value={String(checks.length)} />
+              {browserChecks.length === 0 ? (
+                <p className="text-sm text-slate-500">
+                  No browser checks yet. Stats appear once the worker runs.
+                </p>
+              ) : (
+                <>
+                  <HealthRow
+                    label="Last check"
+                    value={lastCheck ? formatDistanceToNow(new Date(lastCheck), { addSuffix: true }) : "never"}
+                  />
+                  <HealthRow label="Median speed" value={`${(medianMs / 1000).toFixed(1)}s`} />
+                  {/* Lazada serving a captcha is the thing that would silently break us. */}
+                  <HealthRow label="Captcha / blocked" value={`${blockedRate}%`} good={blockedRate === 0} />
+                  <HealthRow label="Inconclusive" value={`${failedRate}%`} good={failedRate < 10} />
+                  <HealthRow label="Checks logged" value={String(browserChecks.length)} />
+                </>
+              )}
             </div>
           </Card>
           <Card>
