@@ -1,18 +1,24 @@
-# Fly.io worker: no [http_service] — this app serves no traffic, it just runs a loop.
-app = "lazada-monitor-worker"
-primary_region = "sin"  # Singapore — closest region to Lazada MY
+# fly.toml app configuration file generated for lazada-monitor-worker on 2026-07-15T05:50:00Z
+#
+# See https://fly.io/docs/reference/configuration/ for information about how to use this file.
+#
+
+app = 'lazada-monitor-worker'
+primary_region = 'sin'
 
 [build]
-  dockerfile = "Dockerfile"
+  dockerfile = 'Dockerfile'
+
+[deploy]
+  strategy = 'immediate'
 
 [env]
-  TICK_MS = "5000"
-  JITTER_MS = "4000"
+  # Jitter between products so requests don't look metronomic to anti-bot.
+  JITTER_MS = '2000'
+  # Loop granularity: must be well under the shortest check_interval_secs (10s) or it
+  # would blunt it — a due product could wait up to TICK_MS before being picked up.
+  TICK_MS = '2000'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "1gb"  # Chromium OOMs below ~512mb; 1gb is the safe floor
-
-# Never scale to zero and never run two copies (double checks / double alerts).
-[deploy]
-  strategy = "immediate"
+  size = 'shared-cpu-1x'
+  memory = '1gb'

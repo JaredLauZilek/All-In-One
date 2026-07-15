@@ -5,8 +5,6 @@ import { Plus, Package, Zap, Trash2, History, ExternalLink } from "lucide-react"
 import { supabase, fmtPrice, parseLazadaUrl, type Product, type Check } from "../lib/supabase";
 import { Button, Card, Input, Modal, StatusBadge, Switch, Spinner, EmptyState, cn } from "../components/ui";
 
-// Checks run on our own browser worker and cost nothing per request, so short
-// intervals are practical (a check takes ~7-9s).
 // "direct"/"scrape_api" only appear on historical rows from the retired HTTP checker.
 const FETCH_METHOD_LABEL: Record<string, string> = {
   browser: "Browser",
@@ -14,9 +12,16 @@ const FETCH_METHOD_LABEL: Record<string, string> = {
   scrape_api: "ScraperAPI (legacy)",
 };
 
+// Checks cost nothing per request, but going too fast BACKFIRES. Measured 2026-07 from
+// Fly/sin: at a 10s interval Lazada silently throttles us — latency decayed 6s -> 21s ->
+// 45s (timeout) -> 89s within ~2 minutes, so the achieved cadence became ~80s, far worse
+// than simply asking for 60s. Backing off let it recover. 60s is the tested sweet spot;
+// treat sub-30s as experimental and watch "Captcha / blocked" + median speed on the
+// dashboard. This is a minimum gap between checks, never a guarantee.
 const INTERVALS = [
-  { secs: 30, label: "30 sec" },
-  { secs: 60, label: "1 min" },
+  { secs: 15, label: "15 sec (may throttle)" },
+  { secs: 30, label: "30 sec (may throttle)" },
+  { secs: 60, label: "1 min (recommended)" },
   { secs: 180, label: "3 min" },
   { secs: 300, label: "5 min" },
   { secs: 900, label: "15 min" },

@@ -11,8 +11,11 @@ const OOS = /out of stock|sold out|currently unavailable|no longer available|not
 const BUYABLE = /add to cart|buy now|add to basket/i;
 const CAPTCHA = /slider|captcha|punish|unusual traffic|verify to continue/i;
 
-/** Hydration wait. Lazada paints the cart button shortly after DOMContentLoaded. */
-const HYDRATE_MS = 6000;
+// Lazada paints the real buy/OOS state shortly after DOMContentLoaded. Rather than
+// sleeping a fixed interval, poll until a definitive signal appears — usually far
+// sooner. If nothing definitive shows up in time we fall through and evaluate anyway
+// (yielding "unknown"), so this can only make us faster, never wrong.
+const HYDRATE_TIMEOUT_MS = 12000;
 
 export function parseLazadaUrl(url) {
   try {
@@ -54,7 +57,22 @@ export async function checkStock(browser, url) {
     });
 
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
-    await page.waitForTimeout(HYDRATE_MS);
+    await page
+      .waitForFunction(
+        () => {
+          const btns = Array.from(
+            document.querySelectorAll("button, .pdp-button, [class*='add-to-cart'], [class*='buy']"),
+          )
+            .map((b) => (b.textContent || "").trim())
+            .join(" | ")
+            .toLowerCase();
+          if (/add to cart|buy now|add to basket/.test(btns)) return true;
+          const txt = (document.body.innerText || "").toLowerCase();
+          return /out of stock|sold out|no longer available|currently unavailable/.test(btns + " " + txt);
+        },
+        { timeout: HYDRATE_TIMEOUT_MS, polling: 200 },
+      )
+      .catch(() => {}); // no definitive signal in time -> evaluate as-is
 
     const info = await page.evaluate(() => {
       const buttons = Array.from(

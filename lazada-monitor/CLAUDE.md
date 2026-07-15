@@ -130,9 +130,22 @@ Paths that were investigated and rejected (don't redo this work):
 Metadata (title/image/price/currency) *is* reliable in the HTML, but we no longer fetch it
 separately — the worker reads it from the same page load as the stock check.
 
+## Don't lower the check interval below ~60s — it backfires
+
+Checks cost nothing per request, so the temptation is to poll hard. **Measured 2026-07
+from Fly/sin at a 10s interval, Lazada silently throttles**: latency decayed
+6s → 21s → 45s (timeout) → **89s** within ~2 minutes. It never returns a captcha or an
+error page — it just tarpits the connection, so the data stays correct while the achieved
+cadence collapses to ~80s, i.e. *worse than asking for 60s*. Backing off to 60s made it
+decay back down (31s → 18s → baseline).
+
+So the interval is self-defeating below some threshold: **60s is the tested sweet spot.**
+If you revisit this, the canaries are median speed and "Captcha / blocked" on the
+dashboard — a creeping median means throttling, not a slow network.
+
 Worker tunables: `TICK_MS`, `JITTER_MS` (env); `ERROR_BACKOFF_AFTER` (5 consecutive
-errors → 15 min), `BROWSER_RECYCLE_CHECKS` (200) in `worker/src/index.js`. A check takes
-~7–9 s and costs **no** scraping credits, so 15–30 s intervals are practical.
+errors → 15 min), `BROWSER_RECYCLE_CHECKS` (200) in `worker/src/index.js`. A healthy
+check is ~6–7 s (page load dominates; the hydration wait is adaptive, ~0.2–1.4 s).
 
 ## Local development
 
