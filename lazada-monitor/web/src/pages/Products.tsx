@@ -12,16 +12,18 @@ const FETCH_METHOD_LABEL: Record<string, string> = {
   scrape_api: "ScraperAPI (legacy)",
 };
 
-// Checks cost nothing per request, but going too fast BACKFIRES. Measured 2026-07 from
-// Fly/sin: at a 10s interval Lazada silently throttles us — latency decayed 6s -> 21s ->
-// 45s (timeout) -> 89s within ~2 minutes, so the achieved cadence became ~80s, far worse
-// than simply asking for 60s. Backing off let it recover. 60s is the tested sweet spot;
-// treat sub-30s as experimental and watch "Captcha / blocked" + median speed on the
-// dashboard. This is a minimum gap between checks, never a guarantee.
+// The worker keeps ONE warm browser session per product and reloads it, which held ~2.5s
+// flat across 14 reloads at 5s with no throttling. (An earlier design opened a fresh
+// session per check and Lazada tarpitted it: 6s -> 89s at a 10s interval. The session
+// churn was the trigger, not the rate.) 5s is the practical floor since a reload itself
+// takes ~2-3s. This is a minimum gap between checks, never a guarantee — watch median
+// speed on the dashboard; a creeping median means throttling.
 const INTERVALS = [
-  { secs: 15, label: "15 sec (may throttle)" },
-  { secs: 30, label: "30 sec (may throttle)" },
-  { secs: 60, label: "1 min (recommended)" },
+  { secs: 5, label: "5 sec (fastest)" },
+  { secs: 10, label: "10 sec" },
+  { secs: 15, label: "15 sec" },
+  { secs: 30, label: "30 sec" },
+  { secs: 60, label: "1 min" },
   { secs: 180, label: "3 min" },
   { secs: 300, label: "5 min" },
   { secs: 900, label: "15 min" },

@@ -15,7 +15,10 @@ const CAPTCHA = /slider|captcha|punish|unusual traffic|verify to continue/i;
 // sleeping a fixed interval, poll until a definitive signal appears — usually far
 // sooner. If nothing definitive shows up in time we fall through and evaluate anyway
 // (yielding "unknown"), so this can only make us faster, never wrong.
-const HYDRATE_TIMEOUT_MS = 12000;
+// Generous on purpose: the wait POLLS and returns the instant a signal appears (~0.2-1.4s
+// on a healthy page), so a long ceiling costs nothing normally. It only matters when the
+// page is slow — where a short ceiling would report "unknown" instead of the real status.
+const HYDRATE_TIMEOUT_MS = 25000;
 
 export function parseLazadaUrl(url) {
   try {
@@ -34,29 +37,54 @@ export function parseLazadaUrl(url) {
  *            price?:number, currency?:string, title?:string, image?:string,
  *            latencyMs:number, error?:string}}
  */
-export async function checkStock(browser, url) {
+export const UA =
+  "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36";
+
+/** One shared, long-lived context: a single warm session (see checkStock). */
+export async function createContext(browser) {
+  const ctx = await browser.newContext({
+    userAgent: UA,
+    locale: "en-US",
+    viewport: { width: 1366, height: 900 },
+  });
+  await ctx.addInitScript(() => {
+    Object.defineProperty(navigator, "webdriver", { get: () => undefined });
+  });
+  return ctx;
+}
+
+/** A warm page bound to one product URL. Skips images/fonts/media. */
+export async function createPage(ctx) {
+  const page = await ctx.newPage();
+  await page.route("**/*", (route) => {
+    const t = route.request().resourceType();
+    if (t === "image" || t === "font" || t === "media") return route.abort();
+    return route.continue();
+  });
+  return page;
+}
+
+/**
+ * Check stock on an EXISTING warm page — reloading if we're already on the URL.
+ *
+ * Why warm: opening a fresh context per check (new cookies/fingerprint every few
+ * seconds) reads as a bot swarm and Lazada tarpits it — measured 2026-07, latency
+ * decayed 6s -> 89s at a 10s interval. Reusing one session and reloading held FLAT at
+ * ~2.5s across 14 reloads at 5s. The session, not the rate, was the trigger.
+ */
+export async function checkStock(page, url) {
   const start = Date.now();
-  let ctx;
   try {
-    ctx = await browser.newContext({
-      userAgent:
-        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36",
-      locale: "en-US",
-      viewport: { width: 1366, height: 900 },
-    });
-    await ctx.addInitScript(() => {
-      Object.defineProperty(navigator, "webdriver", { get: () => undefined });
-    });
+    const onUrl = (() => {
+      try {
+        return new URL(page.url()).pathname === new URL(url).pathname;
+      } catch {
+        return false;
+      }
+    })();
 
-    const page = await ctx.newPage();
-    // Skip images/fonts/media: big speed + bandwidth win, cart button is DOM/JS only.
-    await page.route("**/*", (route) => {
-      const t = route.request().resourceType();
-      if (t === "image" || t === "font" || t === "media") return route.abort();
-      return route.continue();
-    });
-
-    await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
+    if (onUrl) await page.reload({ waitUntil: "domcontentloaded", timeout: 45000 });
+    else await page.goto(url, { waitUntil: "domcontentloaded", timeout: 45000 });
     await page
       .waitForFunction(
         () => {
@@ -137,7 +165,5 @@ export async function checkStock(browser, url) {
     };
   } catch (e) {
     return { status: "error", latencyMs: Date.now() - start, error: String(e).slice(0, 200) };
-  } finally {
-    await ctx?.close().catch(() => {});
   }
 }
