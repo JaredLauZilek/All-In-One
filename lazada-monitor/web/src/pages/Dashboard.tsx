@@ -1,6 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
-import { format, formatDistanceToNow } from "date-fns";
-import { Package, CheckCircle2, XCircle, BellRing, Activity, Gauge } from "lucide-react";
+import { formatDistanceToNow } from "date-fns";
+import { Package, CheckCircle2, XCircle, BellRing, Activity } from "lucide-react";
 import { supabase, fmtPrice, type Product, type Notification } from "../lib/supabase";
 import { Card, CardHeader, StatCard, StatusBadge, Spinner, EmptyState } from "../components/ui";
 
@@ -65,7 +65,6 @@ export default function Dashboard() {
         </Card>
 
         <div className="space-y-6">
-          <ScraperUsageCard />
           <Card>
             <CardHeader title="Checker health" subtitle="Last 50 checks" />
             <div className="space-y-4 px-5 py-4">
@@ -93,67 +92,6 @@ export default function Dashboard() {
         </div>
       </div>
     </div>
-  );
-}
-
-interface ScraperUsage {
-  request_count: number;
-  request_limit: number;
-  credits_left: number;
-  failed_request_count: number;
-  next_billing_date: string | null;
-  error?: string;
-}
-
-function ScraperUsageCard() {
-  const { data, isLoading } = useQuery({
-    queryKey: ["scraper-usage"],
-    queryFn: async () => {
-      const { data, error } = await supabase.functions.invoke("lzd-scraper-usage");
-      if (error) throw error;
-      return data as ScraperUsage;
-    },
-    staleTime: 5 * 60 * 1000,
-    refetchInterval: 5 * 60 * 1000,
-  });
-
-  const pct = data && data.request_limit > 0 ? Math.min(100, (data.request_count / data.request_limit) * 100) : 0;
-  const state = pct >= 90 ? "critical" : pct >= 75 ? "warning" : "ok";
-  const barColor = state === "critical" ? "bg-red-500" : state === "warning" ? "bg-amber-500" : "bg-indigo-500";
-
-  return (
-    <Card>
-      <CardHeader
-        title="ScraperAPI credits"
-        subtitle="Consumed when direct fetch is blocked"
-        action={<Gauge className="h-4 w-4 text-slate-400" />}
-      />
-      <div className="space-y-3 px-5 py-4">
-        {isLoading || !data || data.error ? (
-          <p className="text-sm text-slate-400">{data?.error ? "Usage unavailable right now" : "Loading…"}</p>
-        ) : (
-          <>
-            <div className="flex items-baseline justify-between">
-              <p className="text-2xl font-semibold text-slate-900">
-                {data.request_count.toLocaleString()}
-                <span className="text-sm font-normal text-slate-500"> / {data.request_limit.toLocaleString()}</span>
-              </p>
-              <span className={`text-xs font-medium ${state === "critical" ? "text-red-600" : state === "warning" ? "text-amber-600" : "text-slate-500"}`}>
-                {state === "critical" ? "Almost out" : state === "warning" ? "Running low" : `${Math.round(pct)}% used`}
-              </span>
-            </div>
-            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100">
-              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
-            </div>
-            <HealthRow label="Credits left" value={data.credits_left.toLocaleString()} good={state === "ok"} />
-            <HealthRow label="Failed requests" value={data.failed_request_count.toLocaleString()} />
-            {data.next_billing_date && (
-              <HealthRow label="Resets on" value={format(new Date(data.next_billing_date), "d MMM yyyy")} />
-            )}
-          </>
-        )}
-      </div>
-    </Card>
   );
 }
 

@@ -33,15 +33,18 @@ Fly.io worker (worker/, Playwright + Chromium)   <-- owns stock checking
 
 Edge Fn lzd-telegram-webhook  ← Telegram bot updates (auth: x-telegram-bot-api-secret-token)
        └─ /start <link_code> links chat; /list, /pause, /resume
-Edge Fn lzd-product-preview   ← web app "Add product" (JWT) → metadata only, stock=unknown
-Edge Fn lzd-scraper-usage     ← web app dashboard card (JWT) → proxies ScraperAPI /account
+
+Web app "Add product" → validates the URL client-side (parseLazadaUrl in lib/supabase.ts)
+       └─ inserts the row bare; the worker fills title/image/price/stock on its next pass
 
 pg_cron "lzd-prune" (daily 03:15 UTC) → deletes old lzd_checks / lzd_notifications
-
-DEPRECATED (disabled, do not re-enable):
-  pg_cron "lzd-tick" + Edge Fn lzd-check-stock — HTTP-fetch checker. Superseded because
-  HTTP fetch cannot read Lazada stock at all (see "Stock can only be read by a browser").
 ```
+
+That is the whole system. **There is no scraping API and no HTTP-fetch path any more** —
+the worker's browser is the only thing that talks to Lazada. Removed on purpose (see
+"Stock can only be read by a browser"): the `lzd-check-stock` / `lzd-product-preview` /
+`lzd-scraper-usage` functions, the `lzd-tick` cron, the `lzd_fetch_state` table, and the
+`LZD_SCRAPER_API_KEY` / `LZD_CRON_SECRET` secrets. Don't reintroduce them.
 
 ## Repo layout
 
@@ -56,15 +59,12 @@ lazada-monitor/
 │   ├── src/selftest.js    # `node src/selftest.js` — verify detector, no DB/secrets
 │   └── Dockerfile + fly.toml
 ├── supabase/functions/            # mirror of what's deployed; deploy via Supabase MCP
-│   ├── lzd-check-stock/   DEPRECATED (HTTP checker; cannot read stock) — cron disabled
-│   ├── lzd-telegram-webhook/  index.ts + telegram.ts
-│   ├── lzd-product-preview/   index.ts + lazada.ts
-│   └── lzd-scraper-usage/     index.ts
+│   └── lzd-telegram-webhook/  index.ts + telegram.ts   (the only edge function left)
 └── web/                           # Vite + React + TS + Tailwind v4
     └── src/
         ├── App.tsx        # auth gate, router, RealtimeBridge (invalidates queries on
         │                  #   lzd_products / lzd_notifications changes)
-        ├── lib/supabase.ts   # client + shared types + fmtPrice() + BOT_USERNAME
+        ├── lib/supabase.ts   # client + types + fmtPrice() + parseLazadaUrl() + BOT_USERNAME
         ├── components/    Layout.tsx (sidebar shell), ui.tsx (design-system primitives)
         └── pages/         Login, Dashboard, Products, Notifications, Settings
 ```
@@ -75,28 +75,29 @@ lazada-monitor/
   (`in_stock|out_of_stock|unknown|blocked|error`), `check_interval_secs` (default 180),
   `burst_interval_secs` (default 30) + `burst_until`, `is_active`, `consecutive_errors`,
   `last_status_change_at`, `user_id`.
-- `lzd_checks` — append-only check log (`fetch_method` is `direct|scrape_api`).
+- `lzd_checks` — append-only check log (`fetch_method` is `browser`; older rows may say
+  `direct`/`scrape_api` from the retired HTTP checker).
 - `lzd_notifications` — sent alerts (`type` = `restock|error|test`).
 - `lzd_settings` — one row/user: `telegram_chat_id`, `link_code`, defaults, retention.
-- `lzd_fetch_state` — single row (id=1), **service-role only** (RLS on, no policies —
-  the "RLS enabled, no policy" advisor warning on this table is intentional). Holds
-  `blocked_until` cooldown + direct/scrape counters.
 
 RLS pattern: user tables are owner-only (`user_id = auth.uid()`), matching the EVOne app's
-convention. Schema is already multi-user-ready even though there's one user today.
+convention. Schema is already multi-user-ready even though there's one user today. The
+worker uses the service_role key, so RLS doesn't apply to it.
 
 ## Secrets — never hardcode, never put in migrations
 
 Stored in **Supabase Vault** with the `LZD_` prefix; read only via the
 `service_role`-restricted RPC `public.lzd_get_secrets()` (returns a JSONB of all `LZD_*`).
-Edge functions call `admin.rpc("lzd_get_secrets")`. Current secrets:
-`LZD_TELEGRAM_BOT_TOKEN`, `LZD_SCRAPER_API_KEY`, `LZD_CRON_SECRET`, `LZD_TG_WEBHOOK_SECRET`.
+Callers use `admin.rpc("lzd_get_secrets")`. Current secrets — only two:
 
-- The cron secret and webhook secret are injected into cron SQL / setWebhook calls
-  directly via `execute_sql` — **keep them out of `apply_migration`** so they never land
-  in committed migration history.
-- The only secrets in the repo are the frontend's publishable values in `web/.env`
-  (Supabase URL + publishable key), which are safe to expose.
+- `LZD_TELEGRAM_BOT_TOKEN` — used by the worker (alerts) and the webhook (replies)
+- `LZD_TG_WEBHOOK_SECRET` — validates Telegram's `x-telegram-bot-api-secret-token`
+
+The webhook secret is injected into the `setWebhook` call via `execute_sql` — **keep it
+out of `apply_migration`** so it never lands in committed migration history. The worker's
+own credentials (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) live in `fly secrets`, not
+in Vault and not in the repo. The only secrets in the repo are the frontend's publishable
+values in `web/.env` (Supabase URL + publishable key), which are safe to expose.
 
 ## Stock can only be read by a browser (the single most important fact here)
 
@@ -116,15 +117,18 @@ alerted). Don't "fix" this by finding a better regex; the data is not in the HTM
 **The reliable signal**: does a real "Add to Cart"/"Buy Now" button exist in the loaded
 page? That's what `worker/src/lazada.js` checks, and why the worker exists.
 
-Paths that were investigated and rejected:
+Paths that were investigated and rejected (don't redo this work):
+- *ScraperAPI* plain fetch: returns the same stock-independent HTML — useless for stock.
+  **The whole ScraperAPI integration was therefore deleted**; the browser needs no proxy
+  (it passes anti-bot from a plain datacenter IP with no captcha).
 - *ScraperAPI `render=true`*: 500s on Lazada, and premium proxies (which its own error
   recommends) are not on the current plan (403). Also ~57 s and 10–25 credits per check.
 - *Signed mtop API* (`mtop.lazada.detail.*` on `acs-m.lazada.com.my`): token+md5 signing
   works, but the detail endpoints need Alibaba's rotating `x-sgext`/`x-mini-wua` anti-bot
   headers → `FAIL_SYS_ILLEGAL_ACCESS`. Too fragile to depend on.
 
-Metadata (title/image/price/currency) *is* reliable in the HTML — that's all
-`lzd-product-preview` uses it for, and it now reports `stock_status: "unknown"`.
+Metadata (title/image/price/currency) *is* reliable in the HTML, but we no longer fetch it
+separately — the worker reads it from the same page load as the stock check.
 
 Worker tunables: `TICK_MS`, `JITTER_MS` (env); `ERROR_BACKOFF_AFTER` (5 consecutive
 errors → 15 min), `BROWSER_RECYCLE_CHECKS` (200) in `worker/src/index.js`. A check takes
@@ -148,9 +152,10 @@ forwarded domain (`*.app.github.dev`) works — don't remove it or Codespace pre
 
 - **Edge functions**: deploy with the Supabase MCP `deploy_edge_function` (per-folder).
   There is no `supabase` CLI login here; the `supabase/functions/` tree is the source
-  mirror, not an auto-deploy. `verify_jwt`: **false** for `lzd-check-stock` and
-  `lzd-telegram-webhook` (they do their own header-secret auth), **true** for
-  `lzd-product-preview` and `lzd-scraper-usage`.
+  mirror, not an auto-deploy. Only `lzd-telegram-webhook` remains, with `verify_jwt: false`
+  (it authenticates via Telegram's secret-token header instead).
+  Note: the MCP has no delete-function tool — retired functions must be removed from the
+  Supabase dashboard by hand.
 - **Schema**: DDL via MCP `apply_migration` (snake_case name); ad-hoc/secret-bearing SQL
   via `execute_sql`. Run `get_advisors` after DDL. New functions need
   `set search_path = ''`.
@@ -164,16 +169,18 @@ forwarded domain (`*.app.github.dev`) works — don't remove it or Codespace pre
 `lzd_get_secrets()`, so it is not duplicated there. Keep `fly scale count 1`: two
 machines would double-check and could double-alert.
 
-## Shared-module gotcha (easy to get wrong)
+## Telegram logic lives in two places
 
-`lazada.ts` and `telegram.ts` are **duplicated** into each function folder that needs them
-(edge deploys are per-folder; there's no shared import across functions). When you change
-fetch/parse or Telegram logic, **update every copy**:
+There are two independent copies of the Telegram send logic, by necessity — they run on
+different platforms and cannot import each other:
 
-- `lazada.ts` → `lzd-check-stock/` and `lzd-product-preview/`
-- `telegram.ts` → `lzd-check-stock/` and `lzd-telegram-webhook/`
+- `worker/src/telegram.js` (Node, on Fly) — sends the restock alert
+- `supabase/functions/lzd-telegram-webhook/telegram.ts` (Deno, on Supabase) — bot replies
 
-…then redeploy each affected function. Keeping them byte-identical is the intent.
+If you change message formatting or the send call, check whether both need it.
+(This used to be a worse 4-copy problem across edge functions; deleting the HTTP checker
+and preview removed the `lazada.ts` duplication entirely — stock logic now exists once, in
+`worker/src/lazada.js`.)
 
 ## Conventions / invariants
 

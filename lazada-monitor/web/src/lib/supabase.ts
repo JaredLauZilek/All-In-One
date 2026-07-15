@@ -62,6 +62,23 @@ export interface Settings {
 
 export const BOT_USERNAME = "pokemonAIO_bot";
 
+/**
+ * Validates a Lazada product URL and pulls out its ids, client-side.
+ * Metadata (title/image/price) and stock are filled in by the browser worker on its
+ * first check, usually within seconds — no server round-trip needed to add a product.
+ */
+export function parseLazadaUrl(url: string): { itemId: string; skuId: string | null } | null {
+  try {
+    const u = new URL(url.trim());
+    if (!/(^|\.)lazada\./.test(u.hostname)) return null;
+    const m = u.pathname.match(/-i(\d+)(?:-s(\d+))?\.html/);
+    if (!m) return null;
+    return { itemId: m[1], skuId: m[2] ?? u.searchParams.get("skuId") };
+  } catch {
+    return null;
+  }
+}
+
 export function fmtPrice(price: number | null | undefined, currency = "MYR"): string {
   if (price === null || price === undefined) return "—";
   return `${currency === "MYR" ? "RM" : currency + " "}${Number(price).toLocaleString("en-MY", { minimumFractionDigits: 2 })}`;

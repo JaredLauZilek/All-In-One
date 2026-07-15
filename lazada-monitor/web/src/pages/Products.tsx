@@ -2,27 +2,26 @@ import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
 import { Plus, Package, Zap, Trash2, History, ExternalLink } from "lucide-react";
-import { supabase, fmtPrice, type Product, type Check } from "../lib/supabase";
+import { supabase, fmtPrice, parseLazadaUrl, type Product, type Check } from "../lib/supabase";
 import { Button, Card, Input, Modal, StatusBadge, Switch, Spinner, EmptyState, cn } from "../components/ui";
 
+// Checks run on our own browser worker and cost nothing per request, so short
+// intervals are practical (a check takes ~7-9s).
+// "direct"/"scrape_api" only appear on historical rows from the retired HTTP checker.
+const FETCH_METHOD_LABEL: Record<string, string> = {
+  browser: "Browser",
+  direct: "Direct (legacy)",
+  scrape_api: "ScraperAPI (legacy)",
+};
+
 const INTERVALS = [
+  { secs: 30, label: "30 sec" },
   { secs: 60, label: "1 min" },
   { secs: 180, label: "3 min" },
   { secs: 300, label: "5 min" },
   { secs: 900, label: "15 min" },
   { secs: 3600, label: "1 hour" },
 ];
-
-interface Preview {
-  item_id: string;
-  sku_id: string | null;
-  title: string | null;
-  image_url: string | null;
-  price: number | null;
-  currency: string;
-  shop_name: string | null;
-  stock_status: string;
-}
 
 export default function Products() {
   const qc = useQueryClient();
@@ -172,41 +171,36 @@ export default function Products() {
 function AddProductModal({ open, onClose }: { open: boolean; onClose: () => void }) {
   const qc = useQueryClient();
   const [url, setUrl] = useState("");
-  const [preview, setPreview] = useState<Preview | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [loading, setLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   function reset() {
-    setUrl(""); setPreview(null); setError(null); setLoading(false); setSaving(false);
-  }
-
-  async function fetchPreview() {
-    setLoading(true); setError(null); setPreview(null);
-    const { data, error } = await supabase.functions.invoke("lzd-product-preview", { body: { url: url.trim() } });
-    setLoading(false);
-    if (error || data?.error) { setError(data?.error ?? "Could not fetch that URL. Check it and try again."); return; }
-    setPreview(data as Preview);
+    setUrl(""); setError(null); setSaving(false);
   }
 
   async function save() {
-    if (!preview) return;
+    const ids = parseLazadaUrl(url);
+    if (!ids) {
+      setError("That doesn't look like a Lazada product URL (it should contain …-i<digits>.html).");
+      return;
+    }
     setSaving(true);
     const { data: settings } = await supabase.from("lzd_settings").select("default_check_interval_secs").maybeSingle();
+    // Title/image/price/stock are left blank on purpose: the browser worker picks this
+    // product up on its next pass (it's immediately due) and fills them in, which the
+    // table then shows live via Realtime.
     const { error } = await supabase.from("lzd_products").insert({
       check_interval_secs: settings?.default_check_interval_secs ?? 180,
       url: url.trim(),
-      item_id: preview.item_id,
-      sku_id: preview.sku_id,
-      title: preview.title,
-      image_url: preview.image_url,
-      shop_name: preview.shop_name,
-      currency: preview.currency,
-      last_price: preview.price,
-      stock_status: preview.stock_status,
+      item_id: ids.itemId,
+      sku_id: ids.skuId,
+      stock_status: "unknown",
     });
     setSaving(false);
-    if (error) { setError(error.message); return; }
+    if (error) {
+      setError(error.code === "23505" ? "You're already monitoring that product." : error.message);
+      return;
+    }
     qc.invalidateQueries({ queryKey: ["products"] });
     reset(); onClose();
   }
@@ -216,30 +210,22 @@ function AddProductModal({ open, onClose }: { open: boolean; onClose: () => void
       <div className="space-y-4">
         <div>
           <label className="mb-1.5 block text-xs font-medium text-slate-600">Product URL</label>
-          <div className="flex gap-2">
-            <Input
-              placeholder="https://www.lazada.com.my/products/…"
-              value={url}
-              onChange={(e) => setUrl(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && fetchPreview()}
-            />
-            <Button variant="secondary" onClick={fetchPreview} loading={loading} disabled={!url.trim()}>Preview</Button>
-          </div>
+          <Input
+            placeholder="https://www.lazada.com.my/products/…"
+            value={url}
+            onChange={(e) => { setUrl(e.target.value); setError(null); }}
+            onKeyDown={(e) => e.key === "Enter" && save()}
+            autoFocus
+          />
+          <p className="mt-2 text-xs text-slate-500">
+            Works with any Lazada site (.com.my, .sg, …). The monitor fills in the name, photo
+            and price on its first check — usually within a few seconds.
+          </p>
         </div>
         {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>}
-        {preview && (
-          <div className="rounded-xl border border-slate-200 p-4">
-            <div className="flex gap-4">
-              {preview.image_url && <img src={preview.image_url} alt="" className="h-20 w-20 rounded-lg border border-slate-200 object-cover" />}
-              <div className="min-w-0 flex-1">
-                <p className="text-sm font-medium text-slate-800">{preview.title ?? "Unknown title"}</p>
-                <p className="mt-1 text-sm font-semibold text-slate-900">{fmtPrice(preview.price, preview.currency)}</p>
-                <div className="mt-2"><StatusBadge status={preview.stock_status} /></div>
-              </div>
-            </div>
-            <Button onClick={save} loading={saving} className="mt-4 w-full">Start monitoring</Button>
-          </div>
-        )}
+        <Button onClick={save} loading={saving} disabled={!url.trim()} className="w-full">
+          Start monitoring
+        </Button>
       </div>
     </Modal>
   );
@@ -278,7 +264,7 @@ function HistoryModal({ product, onClose }: { product: Product; onClose: () => v
                 <td className="py-2.5 pr-3 text-xs text-slate-600">{format(new Date(c.checked_at), "d MMM HH:mm:ss")}</td>
                 <td className="py-2.5 pr-3"><StatusBadge status={c.status} /></td>
                 <td className="py-2.5 pr-3 text-slate-700">{fmtPrice(c.price, product.currency)}</td>
-                <td className="py-2.5 pr-3 text-xs text-slate-500">{c.fetch_method === "scrape_api" ? "ScraperAPI" : "Direct"}</td>
+                <td className="py-2.5 pr-3 text-xs text-slate-500">{FETCH_METHOD_LABEL[c.fetch_method ?? ""] ?? c.fetch_method ?? "—"}</td>
                 <td className="py-2.5 text-xs text-slate-500">{c.latency_ms != null ? `${c.latency_ms} ms` : "—"}</td>
               </tr>
             ))}

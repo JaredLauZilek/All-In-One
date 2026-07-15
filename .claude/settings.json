@@ -37,7 +37,10 @@
       "Bash(timeout 90 node stockcheck.mjs \"https://www.lazada.com.my/products/pokemon-tcg-booster-pack-1000-original-i3892201953.html\")",
       "Bash(python3 -c \"import json,sys; d=json.load\\(sys.stdin\\); print\\(f\\\\\"ScraperAPI: {d['requestCount']}/{d['requestLimit']} used, {d['creditsLeft']} credits left\\\\\"\\)\")",
       "Bash(timeout 180 node src/selftest.js)",
-      "Bash(timeout 200 node src/selftest.js)"
+      "Bash(timeout 200 node src/selftest.js)",
+      "Bash(git commit -q -m 'Fix wrong stock status: replace HTTP checker with Playwright worker *)",
+      "Bash(git commit *)",
+      "Bash(timeout 120 node src/selftest.js \"https://www.lazada.sg/products/pdp-i13696744288-s124594658123.html\")"
     ]
   }
 }
