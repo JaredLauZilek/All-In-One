@@ -26,6 +26,25 @@ export interface Product {
   last_checked_at: string | null;
   last_status_change_at: string | null;
   created_at: string;
+  /** Daily checking window in `timezone`; null start+end = always. May wrap midnight. */
+  active_from: string | null;
+  active_to: string | null;
+  timezone: string;
+}
+
+/** Mirrors the worker's window logic so the UI can show when a product is idle. */
+export function inActiveWindow(p: Pick<Product, "active_from" | "active_to" | "timezone">, now = new Date()): boolean {
+  if (!p.active_from || !p.active_to) return true;
+  const from = p.active_from.slice(0, 5);
+  const to = p.active_to.slice(0, 5);
+  if (from === to) return true;
+  const cur = new Intl.DateTimeFormat("en-GB", {
+    timeZone: p.timezone || "Asia/Kuala_Lumpur",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(now);
+  return from < to ? cur >= from && cur < to : cur >= from || cur < to;
 }
 
 export interface Check {

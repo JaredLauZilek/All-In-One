@@ -64,7 +64,29 @@ async function getBotToken() {
   return botToken;
 }
 
+/**
+ * Is `now` inside the product's daily checking window, in ITS timezone?
+ * Windows may wrap midnight (22:00 -> 06:00), hence the two branches.
+ * No window configured => always active.
+ */
+export function inActiveWindow(p, now = new Date()) {
+  if (!p.active_from || !p.active_to) return true;
+  const from = p.active_from.slice(0, 5);
+  const to = p.active_to.slice(0, 5);
+  if (from === to) return true; // degenerate: treat as full day
+  const cur = new Intl.DateTimeFormat("en-GB", {
+    timeZone: p.timezone || "Asia/Kuala_Lumpur",
+    hour12: false,
+    hour: "2-digit",
+    minute: "2-digit",
+  }).format(now);
+  return from < to
+    ? cur >= from && cur < to // same-day window
+    : cur >= from || cur < to; // wraps midnight
+}
+
 function isDue(p, now) {
+  if (!inActiveWindow(p, new Date(now))) return false;
   if (!p.last_checked_at) return true;
   const bursting = p.burst_until && new Date(p.burst_until).getTime() > now;
   let interval = bursting ? p.burst_interval_secs : p.check_interval_secs;

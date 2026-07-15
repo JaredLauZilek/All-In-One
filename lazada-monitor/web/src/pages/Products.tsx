@@ -1,8 +1,8 @@
 import { useState } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { formatDistanceToNow, format } from "date-fns";
-import { Plus, Package, Zap, Trash2, History, ExternalLink } from "lucide-react";
-import { supabase, fmtPrice, parseLazadaUrl, type Product, type Check } from "../lib/supabase";
+import { Plus, Package, Zap, Trash2, History, ExternalLink, Clock, Moon } from "lucide-react";
+import { supabase, fmtPrice, parseLazadaUrl, inActiveWindow, type Product, type Check } from "../lib/supabase";
 import { Button, Card, Input, Modal, StatusBadge, Switch, Spinner, EmptyState, cn } from "../components/ui";
 
 // "direct"/"scrape_api" only appear on historical rows from the retired HTTP checker.
@@ -32,6 +32,7 @@ export default function Products() {
   const qc = useQueryClient();
   const [addOpen, setAddOpen] = useState(false);
   const [detail, setDetail] = useState<Product | null>(null);
+  const [scheduling, setScheduling] = useState<Product | null>(null);
 
   const { data: products, isLoading } = useQuery({
     queryKey: ["products"],
@@ -89,6 +90,7 @@ export default function Products() {
                 <th className="px-3 py-3 font-medium">Status</th>
                 <th className="px-3 py-3 font-medium">Price</th>
                 <th className="px-3 py-3 font-medium">Interval</th>
+                <th className="px-3 py-3 font-medium">Schedule</th>
                 <th className="px-3 py-3 font-medium">Last check</th>
                 <th className="px-3 py-3 font-medium">Active</th>
                 <th className="px-3 py-3" />
@@ -97,6 +99,8 @@ export default function Products() {
             <tbody className="divide-y divide-slate-100">
               {products.map((p) => {
                 const bursting = p.burst_until && new Date(p.burst_until) > new Date();
+                const scheduled = !!(p.active_from && p.active_to);
+                const sleeping = p.is_active && scheduled && !inActiveWindow(p);
                 return (
                   <tr key={p.id} className="hover:bg-slate-50/60">
                     <td className="px-5 py-3.5">
@@ -113,7 +117,19 @@ export default function Products() {
                         </div>
                       </div>
                     </td>
-                    <td className="px-3 py-3.5"><StatusBadge status={p.is_active ? p.stock_status : "paused"} /></td>
+                    <td className="px-3 py-3.5">
+                      <div className="flex items-center gap-1.5">
+                        <StatusBadge status={p.is_active ? p.stock_status : "paused"} />
+                        {sleeping && (
+                          <span
+                            title={`Outside its checking window (${p.active_from!.slice(0, 5)}–${p.active_to!.slice(0, 5)} ${p.timezone}) — not being checked right now`}
+                            className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-1 text-xs font-medium text-slate-500 ring-1 ring-inset ring-slate-400/20"
+                          >
+                            <Moon className="h-3 w-3" /> Asleep
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-3 py-3.5 font-medium text-slate-700">{fmtPrice(p.last_price, p.currency)}</td>
                     <td className="px-3 py-3.5">
                       <select
@@ -123,6 +139,15 @@ export default function Products() {
                       >
                         {INTERVALS.map((i) => <option key={i.secs} value={i.secs}>{i.label}</option>)}
                       </select>
+                    </td>
+                    <td className="px-3 py-3.5">
+                      <button
+                        onClick={() => setScheduling(p)}
+                        className="inline-flex items-center gap-1.5 rounded-md border border-slate-200 px-2 py-1 text-xs text-slate-600 hover:border-indigo-300 hover:text-indigo-600"
+                      >
+                        <Clock className="h-3 w-3" />
+                        {scheduled ? `${p.active_from!.slice(0, 5)}–${p.active_to!.slice(0, 5)}` : "24/7"}
+                      </button>
                     </td>
                     <td className="px-3 py-3.5 text-xs text-slate-500">
                       {p.last_checked_at ? formatDistanceToNow(new Date(p.last_checked_at), { addSuffix: true }) : "pending…"}
@@ -169,6 +194,7 @@ export default function Products() {
 
       <AddProductModal open={addOpen} onClose={() => setAddOpen(false)} />
       {detail && <HistoryModal product={detail} onClose={() => setDetail(null)} />}
+      {scheduling && <ScheduleModal product={scheduling} onClose={() => setScheduling(null)} />}
     </div>
   );
 }
@@ -231,6 +257,92 @@ function AddProductModal({ open, onClose }: { open: boolean; onClose: () => void
         <Button onClick={save} loading={saving} disabled={!url.trim()} className="w-full">
           Start monitoring
         </Button>
+      </div>
+    </Modal>
+  );
+}
+
+const TIMEZONES = ["Asia/Kuala_Lumpur", "Asia/Singapore", "Asia/Bangkok", "Asia/Jakarta", "Asia/Manila", "UTC"];
+
+function ScheduleModal({ product, onClose }: { product: Product; onClose: () => void }) {
+  const qc = useQueryClient();
+  const [always, setAlways] = useState(!(product.active_from && product.active_to));
+  const [from, setFrom] = useState(product.active_from?.slice(0, 5) ?? "08:00");
+  const [to, setTo] = useState(product.active_to?.slice(0, 5) ?? "00:00");
+  const [tz, setTz] = useState(product.timezone || "Asia/Kuala_Lumpur");
+  const [saving, setSaving] = useState(false);
+
+  async function save() {
+    setSaving(true);
+    const { error } = await supabase
+      .from("lzd_products")
+      .update({
+        active_from: always ? null : `${from}:00`,
+        active_to: always ? null : `${to}:00`,
+        timezone: tz,
+      })
+      .eq("id", product.id);
+    setSaving(false);
+    if (!error) {
+      qc.invalidateQueries({ queryKey: ["products"] });
+      onClose();
+    }
+  }
+
+  const wraps = !always && from > to;
+
+  return (
+    <Modal open onClose={onClose} title="Checking schedule">
+      <div className="space-y-4">
+        <p className="text-sm text-slate-600">
+          Skip checks when a drop can't happen — fewer requests means less chance Lazada
+          throttles you.
+        </p>
+
+        <label className="flex items-center gap-3 rounded-lg border border-slate-200 p-3">
+          <Switch checked={always} onChange={setAlways} />
+          <div>
+            <p className="text-sm font-medium text-slate-700">Check around the clock</p>
+            <p className="text-xs text-slate-500">Never sleep</p>
+          </div>
+        </label>
+
+        {!always && (
+          <div className="space-y-3 rounded-lg border border-slate-200 p-3">
+            <div className="flex items-center gap-3">
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-medium text-slate-600">Check from</label>
+                <Input type="time" value={from} onChange={(e) => setFrom(e.target.value)} />
+              </div>
+              <div className="flex-1">
+                <label className="mb-1 block text-xs font-medium text-slate-600">until</label>
+                <Input type="time" value={to} onChange={(e) => setTo(e.target.value)} />
+              </div>
+            </div>
+            <div>
+              <label className="mb-1 block text-xs font-medium text-slate-600">Timezone</label>
+              <select
+                value={tz}
+                onChange={(e) => setTz(e.target.value)}
+                className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500"
+              >
+                {TIMEZONES.map((z) => <option key={z} value={z}>{z.replace("_", " ")}</option>)}
+              </select>
+            </div>
+            <p className="text-xs text-slate-500">
+              {wraps
+                ? `Checks overnight: ${from} through midnight to ${to} the next day.`
+                : `Checks between ${from} and ${to} daily; asleep the rest of the day.`}
+            </p>
+          </div>
+        )}
+
+        <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700">
+          Note: this stops <b>checks</b>, not the Fly machine — it won't reduce your ~$5/mo
+          compute bill, since Fly charges for the machine being up.
+        </p>
+
+        <Button onClick={save} loading={saving} className="w-full">Save schedule</Button>
       </div>
     </Modal>
   );
