@@ -177,7 +177,11 @@ async function processProduct(browser, p) {
   }
 
   if (parsed.kb) health.kbTotal += parsed.kb;
-  log(`${parsed.status.padEnd(12)} ${parsed.latencyMs}ms  ${parsed.kb ?? "?"}kb  ${(p.title ?? p.url).slice(0, 55)}`);
+  // proxy= billed bandwidth, direct= free (Fly IP). The gap between them is the split working.
+  log(
+    `${parsed.status.padEnd(12)} ${parsed.latencyMs}ms  proxy=${parsed.kb ?? "?"}kb ` +
+      `direct=${parsed.directKb ?? "?"}kb  ${(p.title ?? p.url).slice(0, 45)}`,
+  );
 }
 
 async function main() {
