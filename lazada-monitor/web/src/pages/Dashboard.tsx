@@ -33,7 +33,15 @@ export default function Dashboard() {
   // Stats are computed over browser checks only. Rows from the retired HTTP checker are
   // excluded: their statuses were unreliable (it reported in_stock unconditionally) and
   // its fetch tiers no longer exist, so mixing them in would be misleading.
-  const browserChecks = checks.filter((c) => c.fetch_method === "browser");
+  //
+  // Windowed by TIME, not by count. These numbers are a live health canary, and a
+  // count-based window silently stretches as the interval grows: 50 checks is ~50min at a
+  // 60s interval but ~4 HOURS at 5min, so a recovering monitor still showed its burnt
+  // history and looked broken. An hour means an hour regardless of interval.
+  const sinceMs = Date.now() - 60 * 60 * 1000;
+  const browserChecks = checks.filter(
+    (c) => c.fetch_method === "browser" && new Date(c.checked_at).getTime() >= sinceMs,
+  );
   const lastCheck = browserChecks[0]?.checked_at;
   const blockedRate = browserChecks.length
     ? Math.round((browserChecks.filter((c) => c.status === "blocked").length / browserChecks.length) * 100)
@@ -81,11 +89,12 @@ export default function Dashboard() {
         <div className="space-y-6">
           <WorkerCard />
           <Card>
-            <CardHeader title="Check quality" subtitle="Recent browser checks" />
+            <CardHeader title="Check quality" subtitle="Browser checks · last hour" />
             <div className="space-y-4 px-5 py-4">
               {browserChecks.length === 0 ? (
                 <p className="text-sm text-slate-500">
-                  No browser checks yet. Stats appear once the worker runs.
+                  No checks in the last hour. If the worker is Online, it's simply between
+                  checks — a long interval or the error backoff.
                 </p>
               ) : (
                 <>
@@ -97,7 +106,8 @@ export default function Dashboard() {
                   {/* Lazada serving a captcha is the thing that would silently break us. */}
                   <HealthRow label="Captcha / blocked" value={`${blockedRate}%`} good={blockedRate === 0} />
                   <HealthRow label="Inconclusive" value={`${failedRate}%`} good={failedRate < 10} />
-                  <HealthRow label="Checks logged" value={String(browserChecks.length)} />
+                  {/* Sample size for the four rows above — small n means read them loosely. */}
+                  <HealthRow label="Checks in window" value={String(browserChecks.length)} />
                 </>
               )}
             </div>
