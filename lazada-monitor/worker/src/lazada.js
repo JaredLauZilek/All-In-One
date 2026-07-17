@@ -106,6 +106,17 @@ function isLazadaHost(url) {
   }
 }
 
+/**
+ * In-memory cache for the CDN assets we fetch directly. Lazada's JS bundles live at
+ * versioned URLs (…/pdp-modules/2.0.21/pc-v2-mod.js) so they're immutable — but every
+ * check uses a FRESH context (needed for a fresh proxy IP), which means an empty browser
+ * cache and a re-download of ~8MB each time. Serving them from RAM removes that entirely.
+ * Bounded so it can't grow into the 1GB VM's headroom.
+ */
+const cdnCache = new Map();
+let cdnCacheBytes = 0;
+const CDN_CACHE_MAX_BYTES = 96 * 1024 * 1024;
+
 /** Node's fetch rejects some browser-managed headers; drop them for the direct fetch. */
 function headersForDirectFetch(h) {
   const out = {};
@@ -126,7 +137,11 @@ function headersForDirectFetch(h) {
  *    continuously — at a short cadence that snowballed into 45s+ timeouts. (Measured
  *    2026-07.)
  */
-const MAX_PROXY_RETRIES = 4; // ~25% of residential IPs are burnt for Lazada; retry a fresh one
+// A burnt IP is rejected in ~0.5s, so extra attempts are nearly free — while each one
+// multiplies our odds of drawing a clean IP. Measured 2026-07-17: 4 attempts still left
+// ~20% of checks blocked, implying ~65% of the pool is burnt for Lazada (a rate we made
+// worse ourselves by hammering one URL). 8 attempts takes that ~20% down to ~4%.
+const MAX_PROXY_RETRIES = 8;
 
 /**
  * Retry wrapper. Residential IPs are a lottery: ~25% are already burnt for Lazada
@@ -155,6 +170,7 @@ async function checkStockOnce(browser, url) {
   let page;
   let bytes = 0; // PROXY bytes only → the number we actually pay per GB
   let directBytes = 0; // fetched on the Fly IP → free, tracked for insight only
+  let cacheHits = 0; // assets served from RAM → no network, no re-download
   try {
     ctx = await createContext(browser); // fresh context = one sticky proxy IP for this attempt
     page = await ctx.newPage();
@@ -171,6 +187,13 @@ async function checkStockOnce(browser, url) {
       // render quickly AND keeps ~5MB of CDN JS off the metered proxy.
       if (isLazadaHost(req.url())) return route.continue();
 
+      // Immutable CDN asset we've already pulled → serve from RAM, no network at all.
+      const hit = req.method() === "GET" ? cdnCache.get(req.url()) : null;
+      if (hit) {
+        cacheHits++;
+        return route.fulfill(hit);
+      }
+
       try {
         const res = await fetch(req.url(), {
           method: req.method(),
@@ -185,7 +208,12 @@ async function checkStockOnce(browser, url) {
           if (k === "content-encoding" || k === "content-length") continue;
           headers[k] = v;
         }
-        return route.fulfill({ status: res.status, headers, body });
+        const fulfilled = { status: res.status, headers, body };
+        if (req.method() === "GET" && res.ok && cdnCacheBytes + body.length <= CDN_CACHE_MAX_BYTES) {
+          cdnCache.set(req.url(), fulfilled);
+          cdnCacheBytes += body.length;
+        }
+        return route.fulfill(fulfilled);
       } catch {
         return route.abort(); // a dead CDN asset shouldn't fail the whole check
       }
