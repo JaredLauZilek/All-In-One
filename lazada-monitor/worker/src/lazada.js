@@ -152,6 +152,7 @@ const MAX_PROXY_RETRIES = 8;
  * No proxy → no retry (the Fly IP won't change, so a retry would just repeat itself).
  */
 export async function checkStock(browser, url) {
+  const started = Date.now();
   const attempts = PROXY_ENABLED ? MAX_PROXY_RETRIES : 1;
   let last, kb = 0, directKb = 0, tries = 0;
   for (let i = 0; i < attempts; i++) {
@@ -161,7 +162,10 @@ export async function checkStock(browser, url) {
     tries++;
     if (last.status !== "blocked" && last.status !== "error") break; // good IP → done
   }
-  return { ...last, kb, directKb, tries };
+  // Report time across ALL attempts, not just the last one: what matters (and what the
+  // dashboard's median speed should reflect) is how long the check took to yield an
+  // answer, retries included.
+  return { ...last, kb, directKb, tries, latencyMs: Date.now() - started };
 }
 
 async function checkStockOnce(browser, url) {
