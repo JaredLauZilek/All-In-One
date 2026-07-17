@@ -123,10 +123,12 @@ export default function Dashboard() {
   );
 }
 
-// Fly.io pricing for the fly.toml VM (shared-cpu-1x @ 1GB), used to turn observed
-// uptime into a rough monthly figure. Fly's own dashboard remains the billing source
-// of truth — this is a sanity check, not an invoice.
-const FLY_USD_PER_HOUR = 0.0000008 * 3600 + 0.0000000185 * 1024 * 3600; // ~vCPU + RAM
+// Fly's published price for the preset in fly.toml: shared-cpu-4x, whose 1GB base RAM is
+// included = $7.78/mo. (An earlier per-second CPU+RAM formula here was badly wrong — it
+// billed RAM ~10x over and reported ~$52/mo.) Keep this in step with fly.toml; Fly's own
+// dashboard stays the billing source of truth — this is a sanity check, not an invoice.
+const FLY_USD_PER_MONTH = 7.78;
+const FLY_USD_PER_HOUR = FLY_USD_PER_MONTH / 730;
 
 function fmtDuration(from: string): string {
   const secs = Math.max(0, (Date.now() - new Date(from).getTime()) / 1000);
@@ -201,7 +203,7 @@ function WorkerCard() {
             {isFly && (
               <HealthRow
                 label="Est. cost this run"
-                value={`~$${(hoursUp * FLY_USD_PER_HOUR).toFixed(2)} · ~$${(730 * FLY_USD_PER_HOUR).toFixed(2)}/mo`}
+                value={`~$${(hoursUp * FLY_USD_PER_HOUR).toFixed(2)} · ~$${FLY_USD_PER_MONTH.toFixed(2)}/mo`}
               />
             )}
             {!online && (
