@@ -8,6 +8,7 @@
 // Verified 2026-07: OOS box -> no cart button; in-stock pack -> cart button present.
 
 import { randomBytes } from "node:crypto";
+import { ProxyAgent } from "undici";
 
 const OOS = /out of stock|sold out|currently unavailable|no longer available|notify me/i;
 const BUYABLE = /add to cart|buy now|add to basket/i;
@@ -106,22 +107,27 @@ export const PROXY_ENABLED = !!process.env.PROXY_SERVER;
  * instantly bot-flags (→ x5sec punish). `__cr.sg` keeps the exit IP in Singapore.
  * DataImpulse username syntax: `login__cr.sg;sessid.<id>`.
  */
-function perCheckProxy() {
+/**
+ * An undici dispatcher that egresses through ONE sticky residential IP for this check
+ * (random sessid), or null when no proxy is configured. We attach it per-request only to
+ * Lazada's own hosts — see the inverse split in checkStockOnce.
+ */
+function perCheckAgent() {
   const base = proxyFromEnv();
-  if (!base) return undefined;
+  if (!base) return null;
   const country = process.env.PROXY_COUNTRY || "sg";
   const sessid = randomBytes(6).toString("hex");
-  return { server: base.server, username: `${base.username}__cr.${country};sessid.${sessid}`, password: base.password };
+  const u = new URL(base.server);
+  const auth = `${encodeURIComponent(`${base.username}__cr.${country};sessid.${sessid}`)}:${encodeURIComponent(base.password)}`;
+  return new ProxyAgent(`${u.protocol}//${auth}@${u.host}`);
 }
 
-/** A fresh context per check — carries the per-check sticky-proxy identity. */
+/** The browser always egresses on the plain (Fly) IP; the proxy is applied per-request. */
 export async function createContext(browser) {
-  const proxy = perCheckProxy();
   const ctx = await browser.newContext({
     userAgent: UA,
     locale: "en-US",
     viewport: { width: 1366, height: 900 },
-    ...(proxy ? { proxy } : {}),
   });
   await ctx.addInitScript(() => {
     Object.defineProperty(navigator, "webdriver", { get: () => undefined });
@@ -131,10 +137,11 @@ export async function createContext(browser) {
 
 /**
  * Only Lazada's own hosts (the page document and the stock/API XHRs) carry the x5sec
- * anti-bot check, so only they need to exit from the residential IP. Everything else —
- * above all the ~5MB of JS on `g.lazcdn.com` — is plain static CDN traffic that no one
- * IP-checks. Defaults to TRUE on a parse failure: routing something through the proxy
- * costs a little bandwidth, but routing a checked request around it would get us blocked.
+ * anti-bot check, so only they route through the residential IP. Everything else — above
+ * all the ~5MB of JS on `g.lazcdn.com` — is plain static CDN traffic that no one IP-checks
+ * and that we let load fast on the Fly IP. Defaults to TRUE on a parse failure: proxying
+ * an extra request only costs a little bandwidth, whereas routing a checked one around the
+ * proxy would get us blocked.
  */
 function isLazadaHost(url) {
   try {
@@ -142,6 +149,17 @@ function isLazadaHost(url) {
   } catch {
     return true;
   }
+}
+
+/** Turn a fetch response's Set-Cookie list into Playwright addCookies() entries. */
+function setCookiesToEntries(list, reqUrl) {
+  const host = new URL(reqUrl).hostname;
+  const domain = "." + host.split(".").slice(-2).join(".");
+  return (list || []).map((sc) => {
+    const [pair] = sc.split(";");
+    const i = pair.indexOf("=");
+    return i > 0 ? { name: pair.slice(0, i).trim(), value: pair.slice(i + 1).trim(), domain, path: "/" } : null;
+  }).filter(Boolean);
 }
 
 /**
@@ -210,12 +228,16 @@ async function checkStockOnce(browser, url) {
   const start = Date.now();
   let ctx;
   let page;
+  let agent = null; // per-check residential dispatcher (undici)
   let bytes = 0; // PROXY bytes only → the number we actually pay per GB
-  let directBytes = 0; // fetched on the Fly IP → free, tracked for insight only
-  let cacheHits = 0; // assets served from RAM → no network, no re-download
+  let directBytes = 0; // CDN etc on the Fly IP is free; kept for the dashboard field
   try {
-    ctx = await createContext(browser); // fresh context = one sticky proxy IP for this attempt
+    ctx = await createContext(browser); // browser egresses on the plain Fly IP
+    agent = perCheckAgent(); // one sticky residential IP for this attempt (null if no proxy)
     page = await ctx.newPage();
+
+    // FAST PATH: read stock straight from the page's own getdetailinfo API as it passes.
+    let apiResult = null;
 
     await page.route("**/*", async (route) => {
       const req = route.request();
@@ -223,66 +245,46 @@ async function checkStockOnce(browser, url) {
       // Never needed to find a buy button, and pure cost if proxied.
       if (t === "image" || t === "font" || t === "media" || t === "stylesheet") return route.abort();
 
-      // THE SPLIT. Lazada's own requests keep the residential IP (they're the ones x5sec
-      // inspects — and they're small). Everything else is fetched here in Node, which
-      // egresses on Fly's fast IP instead of a home broadband line: it makes the page
-      // render quickly AND keeps ~5MB of CDN JS off the metered proxy.
-      if (isLazadaHost(req.url())) return route.continue();
+      // CDN / non-Lazada: load normally on the Fly IP. Fast, free, and — crucially — the
+      // page's JS runs intact, so it actually FIRES the getdetailinfo call. (Node-fetching
+      // and re-injecting CDN JS subtly broke execution and the call never fired.)
+      if (!isLazadaHost(req.url()) || !agent) return route.continue();
 
-      // Without a proxy there's no metered bandwidth to save, so let CDN assets load
-      // normally. Node-fetching-and-fulfilling them (the split below) can subtly break the
-      // page's JS execution — and we NEED that JS intact to fire the getdetailinfo call.
-      if (!PROXY_ENABLED) return route.continue();
-
-      // Immutable CDN asset we've already pulled → serve from RAM, no network at all.
-      const hit = req.method() === "GET" ? cdnCache.get(req.url()) : null;
-      if (hit) {
-        cacheHits++;
-        return route.fulfill(hit);
-      }
-
+      // INVERSE SPLIT: tunnel this one x5sec-checked request through the sticky residential
+      // IP. That's what beats the per-IP rate block — a fresh IP each check — while the
+      // heavy JS above stays on the fast Fly pipe.
       try {
         const res = await fetch(req.url(), {
           method: req.method(),
-          headers: headersForDirectFetch(req.headers()),
-          redirect: "follow",
+          headers: req.headers(),
+          body: req.postData() || undefined,
+          dispatcher: agent,
+          redirect: "manual",
         });
         const body = Buffer.from(await res.arrayBuffer());
-        directBytes += body.length;
+        bytes += body.length; // this is metered proxy bandwidth
+        // Relay Set-Cookie so the browser's mtop token handshake completes through the tunnel.
+        const setC = res.headers.getSetCookie?.() || [];
+        if (setC.length) await ctx.addCookies(setCookiesToEntries(setC, req.url())).catch(() => {});
+        // Read the stock answer straight from the API response passing through.
+        if (!apiResult && req.url().includes("getdetailinfo")) {
+          try {
+            const j = JSON.parse(body.toString());
+            if (j?.ret?.[0]?.includes("SUCCESS") && j?.data?.module) {
+              const mod = typeof j.data.module === "string" ? JSON.parse(j.data.module) : j.data.module;
+              const parsed = parseDetailModule(mod);
+              if (parsed.status !== "unknown") apiResult = parsed;
+            }
+          } catch { /* token step / non-JSON — ignore */ }
+        }
         const headers = {};
         for (const [k, v] of res.headers) {
-          // fetch already decoded the body, so the original encoding/length would lie.
-          if (k === "content-encoding" || k === "content-length") continue;
+          if (k === "content-encoding" || k === "content-length" || k === "set-cookie") continue;
           headers[k] = v;
         }
-        const fulfilled = { status: res.status, headers, body };
-        if (req.method() === "GET" && res.ok && cdnCacheBytes + body.length <= CDN_CACHE_MAX_BYTES) {
-          cdnCache.set(req.url(), fulfilled);
-          cdnCacheBytes += body.length;
-        }
-        return route.fulfill(fulfilled);
+        return route.fulfill({ status: res.status, headers, body });
       } catch {
-        return route.abort(); // a dead CDN asset shouldn't fail the whole check
-      }
-    });
-
-    // FAST PATH: the page calls its own stock API (getdetailinfo) early in the load. Read
-    // the answer straight from that JSON — no need to wait for the buy box to render.
-    let apiResult = null;
-    page.on("response", async (res) => {
-      if (!isLazadaHost(res.url())) return; // direct traffic is free — don't bill it
-      const len = Number(res.headers()["content-length"]);
-      if (!Number.isNaN(len)) bytes += len;
-      if (apiResult || !res.url().includes("getdetailinfo")) return;
-      try {
-        const j = JSON.parse(await res.text());
-        if (j?.ret?.[0]?.includes("SUCCESS") && j?.data?.module) {
-          const mod = typeof j.data.module === "string" ? JSON.parse(j.data.module) : j.data.module;
-          const parsed = parseDetailModule(mod);
-          if (parsed.status !== "unknown") apiResult = parsed; // only accept a definite answer
-        }
-      } catch {
-        /* ignore parse hiccups; the DOM fallback still runs */
+        return route.abort();
       }
     });
 
@@ -408,5 +410,6 @@ async function checkStockOnce(browser, url) {
     return { status: "error", latencyMs: Date.now() - start, kb: Math.round(bytes / 1024), directKb: Math.round(directBytes / 1024), error: String(e).slice(0, 200) };
   } finally {
     await ctx?.close().catch(() => {}); // closes the page too
+    await agent?.close().catch(() => {}); // free the proxy sockets
   }
 }
