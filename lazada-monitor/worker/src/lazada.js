@@ -288,6 +288,21 @@ async function checkStockOnce(browser, url) {
       }
     });
 
+    // API interception for the NO-PROXY path: those requests go via route.continue (no
+    // tunnel to parse them inline), so read getdetailinfo off the real response here. Also
+    // a safety net for the proxy path. Guarded by !apiResult so we never double-count.
+    page.on("response", async (res) => {
+      if (apiResult || !res.url().includes("getdetailinfo")) return;
+      try {
+        const j = JSON.parse(await res.text());
+        if (j?.ret?.[0]?.includes("SUCCESS") && j?.data?.module) {
+          const mod = typeof j.data.module === "string" ? JSON.parse(j.data.module) : j.data.module;
+          const parsed = parseDetailModule(mod);
+          if (parsed.status !== "unknown") apiResult = parsed;
+        }
+      } catch { /* ignore */ }
+    });
+
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: GOTO_TIMEOUT_MS });
 
     // Wait for the API answer (usually a few seconds), watching for the anti-bot redirect.
