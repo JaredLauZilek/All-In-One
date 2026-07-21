@@ -20,12 +20,13 @@ const CAPTCHA = /slider|captcha|punish|unusual traffic|verify to continue/i;
 // The wait POLLS and returns the instant a signal appears, and with the CDN split the JS
 // now arrives over Fly's fast pipe, so hydration is quick. A tight ceiling matters here:
 // a dud residential IP should be abandoned fast and RETRIED, not waited on.
-const HYDRATE_TIMEOUT_MS = 12000;
+// Ceiling for the stock answer to arrive. We return the instant the getdetailinfo API
+// responds — ~1-3s on the plain Fly IP — so this only bites on a slow/dud IP. Kept
+// generous enough that a working-but-slow proxy IP still yields the API answer rather
+// than falling through to the much slower DOM render.
+const HYDRATE_TIMEOUT_MS = 18000;
 
-// Deliberately short. A healthy residential IP returns the document in ~0.5-3s (measured
-// by curl); anything slower is a dud worth re-drawing. Retrying a fresh IP after 12s beats
-// waiting 45s for one that will likely fail anyway.
-const GOTO_TIMEOUT_MS = 12000;
+const GOTO_TIMEOUT_MS = 18000;
 
 export function parseLazadaUrl(url) {
   try {
@@ -37,6 +38,43 @@ export function parseLazadaUrl(url) {
   } catch {
     return null;
   }
+}
+
+/**
+ * The page's own stock API — `mtop.global.detail.web.getdetailinfo` on acs-m.lazada.* —
+ * returns the exact data the buy box renders from, in ~2KB of JSON that arrives early in
+ * the load. Reading it directly is the whole game: no waiting on a 10MB DOM render.
+ *
+ * The stock signal is the SKU's CTA operation. Lazada swaps the primary button between
+ * "Add to Cart" (buyable) and "Add to Wishlist" (out of stock) — verified 2026-07 on a
+ * genuinely OOS product whose live `operation` was {type:"wishlist"}.
+ */
+export function parseDetailModule(mod) {
+  const out = { status: "unknown" };
+  try {
+    const sk = mod.skuInfos || {};
+    const pk = mod.primaryKey || {};
+    const sid = String(pk.skuId ?? pk.defaultSkuId ?? Object.keys(sk)[0] ?? "");
+    const sku = sk[sid] || Object.values(sk)[0] || {};
+
+    const ops = [sku.operation, ...(Array.isArray(sku.operations) ? sku.operations : [])].filter(Boolean);
+    const opText = ops.map((o) => `${o.text || ""} ${o.type || ""}`).join(" ").toLowerCase();
+    const hasCart =
+      /add to cart|buy now|add to basket|pre-?order/.test(opText) ||
+      ops.some((o) => ["default", "cart", "addtocart", "buynow", "presale"].includes(String(o.type).toLowerCase()));
+    const primaryType = String(sku.operation?.type ?? ops[0]?.type ?? "").toLowerCase();
+
+    if (hasCart) out.status = "in_stock";
+    else if (primaryType === "wishlist" || /wishlist|out of stock|sold out|no longer/.test(opText)) out.status = "out_of_stock";
+
+    const v = sku.price?.salePrice?.value;
+    if (typeof v === "number") out.price = v;
+    if (mod.product?.title) out.title = mod.product.title;
+    if (sku.image) out.image = sku.image;
+  } catch {
+    /* leave status unknown on any shape surprise */
+  }
+  return out;
 }
 
 /**
@@ -191,6 +229,11 @@ async function checkStockOnce(browser, url) {
       // render quickly AND keeps ~5MB of CDN JS off the metered proxy.
       if (isLazadaHost(req.url())) return route.continue();
 
+      // Without a proxy there's no metered bandwidth to save, so let CDN assets load
+      // normally. Node-fetching-and-fulfilling them (the split below) can subtly break the
+      // page's JS execution — and we NEED that JS intact to fire the getdetailinfo call.
+      if (!PROXY_ENABLED) return route.continue();
+
       // Immutable CDN asset we've already pulled → serve from RAM, no network at all.
       const hit = req.method() === "GET" ? cdnCache.get(req.url()) : null;
       if (hit) {
@@ -223,22 +266,50 @@ async function checkStockOnce(browser, url) {
       }
     });
 
-    page.on("response", (res) => {
+    // FAST PATH: the page calls its own stock API (getdetailinfo) early in the load. Read
+    // the answer straight from that JSON — no need to wait for the buy box to render.
+    let apiResult = null;
+    page.on("response", async (res) => {
       if (!isLazadaHost(res.url())) return; // direct traffic is free — don't bill it
       const len = Number(res.headers()["content-length"]);
       if (!Number.isNaN(len)) bytes += len;
+      if (apiResult || !res.url().includes("getdetailinfo")) return;
+      try {
+        const j = JSON.parse(await res.text());
+        if (j?.ret?.[0]?.includes("SUCCESS") && j?.data?.module) {
+          const mod = typeof j.data.module === "string" ? JSON.parse(j.data.module) : j.data.module;
+          const parsed = parseDetailModule(mod);
+          if (parsed.status !== "unknown") apiResult = parsed; // only accept a definite answer
+        }
+      } catch {
+        /* ignore parse hiccups; the DOM fallback still runs */
+      }
     });
 
     await page.goto(url, { waitUntil: "domcontentloaded", timeout: GOTO_TIMEOUT_MS });
 
-    // Alibaba/Lazada anti-bot: sustained high-frequency polling gets redirected to an
-    // x5sec "punish" challenge (…/_____tmd_____/punish?x5secdata=…). It carries no product
-    // data, so report it honestly as `blocked` (distinct from a genuine `unknown`) and let
-    // the caller's error-backoff slow down until the IP is un-flagged.
-    if (/_____tmd_____|\/punish\b|x5secdata=/.test(page.url())) {
-      return { status: "blocked", latencyMs: Date.now() - start, kb: Math.round(bytes / 1024), directKb: Math.round(directBytes / 1024), error: "x5sec_anti_bot_challenge" };
+    // Wait for the API answer (usually a few seconds), watching for the anti-bot redirect.
+    const deadline = Date.now() + HYDRATE_TIMEOUT_MS;
+    while (!apiResult && Date.now() < deadline) {
+      // Alibaba/Lazada x5sec punish page (…/_____tmd_____/punish?x5secdata=…): no product
+      // data. Report `blocked` so the retry draws a fresh IP and the backoff can slow down.
+      if (/_____tmd_____|\/punish\b|x5secdata=/.test(page.url())) {
+        return { status: "blocked", latencyMs: Date.now() - start, kb: Math.round(bytes / 1024), directKb: Math.round(directBytes / 1024), error: "x5sec_anti_bot_challenge" };
+      }
+      await page.waitForTimeout(120);
     }
 
+    if (apiResult) {
+      return {
+        ...apiResult,
+        latencyMs: Date.now() - start,
+        kb: Math.round(bytes / 1024),
+        directKb: Math.round(directBytes / 1024),
+        via: "api",
+      };
+    }
+
+    // FALLBACK: API didn't arrive in time — read the DOM the slow way (still correct).
     await page
       .waitForFunction(
         () => {

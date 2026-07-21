@@ -21,7 +21,7 @@ console.log(`proxy=${PROXY_ENABLED ? "ON" : "OFF"}`);
 for (const u of urls) {
   const r = await checkStock(browser, u);
   console.log(
-    `${r.status.padEnd(13)} ${String(r.latencyMs).padStart(6)}ms  proxy=${r.kb ?? "?"}kb direct=${r.directKb ?? "?"}kb  ` +
+    `${r.status.padEnd(13)} ${String(r.latencyMs).padStart(6)}ms  via=${r.via ?? "dom"}  proxy=${r.kb ?? "?"}kb direct=${r.directKb ?? "?"}kb  ` +
       `${r.price !== undefined ? (r.currency ?? "MYR") + " " + r.price : "no price"}  ` +
       `${(r.title ?? "").slice(0, 40)}${r.error ? "  ERR:" + r.error : ""}`,
   );
