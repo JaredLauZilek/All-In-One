@@ -11,6 +11,7 @@
 import { createClient } from "@supabase/supabase-js";
 import { chromium } from "playwright";
 import { checkStock, proxyFromEnv, PROXY_ENABLED } from "./lazada.js";
+import { captureNetwork } from "./capture.js";
 import { tgSendMessage, escapeHtml } from "./telegram.js";
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
@@ -139,6 +140,41 @@ async function notifyRestock(p, parsed) {
   log(sent.ok ? `ALERT sent: ${p.title}` : `ALERT FAILED: ${sent.error}`);
 }
 
+/** On-demand network capture requested from the dashboard. Returns true if it ran one. */
+async function runPendingCapture(browser) {
+  const { data } = await db
+    .from("lzd_captures")
+    .select("id, url")
+    .eq("status", "pending")
+    .order("requested_at", { ascending: true })
+    .limit(1);
+  const job = data?.[0];
+  if (!job) return false;
+
+  await db.from("lzd_captures").update({ status: "running" }).eq("id", job.id);
+  log(`capture: running for ${job.url}`);
+  try {
+    const r = await captureNetwork(browser, job.url);
+    await db
+      .from("lzd_captures")
+      .update({
+        status: r.error ? "error" : "done",
+        requests: r.requests,
+        summary: r.summary,
+        error: r.error ?? null,
+        completed_at: new Date().toISOString(),
+      })
+      .eq("id", job.id);
+    log(`capture: done — ${r.summary.total} xhr/fetch, stock source: ${r.summary.stockSources[0] ?? "none"}`);
+  } catch (e) {
+    await db
+      .from("lzd_captures")
+      .update({ status: "error", error: String(e).slice(0, 200), completed_at: new Date().toISOString() })
+      .eq("id", job.id);
+  }
+  return true;
+}
+
 async function processProduct(browser, p) {
   const parsed = await checkStock(browser, p.url);
   const real = parsed.status === "in_stock" || parsed.status === "out_of_stock";
@@ -219,6 +255,12 @@ async function main() {
 
   for (;;) {
     try {
+      // On-demand network captures jump the queue — they're user-triggered and rare.
+      if (await runPendingCapture(browser)) {
+        await heartbeat();
+        continue;
+      }
+
       const { data: products, error } = await db.from("lzd_products").select("*").eq("is_active", true);
       if (error) throw error;
 

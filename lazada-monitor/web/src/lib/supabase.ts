@@ -94,6 +94,30 @@ export interface WorkerState {
 /** Heartbeats older than this mean the worker is wedged or dead, not just idle. */
 export const WORKER_STALE_SECS = 90;
 
+export interface CaptureRequest {
+  url: string;
+  method: string;
+  resourceType: string;
+  status: number;
+  mimeType: string;
+  isJson: boolean;
+  stockish: boolean;
+  bodyPreview: string | null;
+}
+
+export interface Capture {
+  id: number;
+  product_id: string | null;
+  url: string;
+  status: "pending" | "running" | "done" | "error";
+  requests: CaptureRequest[] | null;
+  summary: { total: number; jsonCount: number; stockSources: string[]; blocked: boolean; finalUrl: string } | null;
+  error: string | null;
+  requested_at: string;
+  completed_at: string | null;
+  created_at: string;
+}
+
 export const BOT_USERNAME = "pokemonAIO_bot";
 
 /**

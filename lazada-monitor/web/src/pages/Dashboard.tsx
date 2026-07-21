@@ -1,3 +1,4 @@
+import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
 import { Package, CheckCircle2, XCircle, BellRing, Activity } from "lucide-react";
@@ -6,6 +7,7 @@ import {
   type Product, type Notification, type WorkerState,
 } from "../lib/supabase";
 import { Card, CardHeader, StatCard, StatusBadge, Spinner, EmptyState } from "../components/ui";
+import NetworkInspector from "../components/NetworkInspector";
 
 async function loadDashboard() {
   const since = new Date(Date.now() - 24 * 3600 * 1000).toISOString();
@@ -23,9 +25,13 @@ async function loadDashboard() {
 
 export default function Dashboard() {
   const { data, isLoading } = useQuery({ queryKey: ["dashboard"], queryFn: loadDashboard });
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   if (isLoading || !data) return <Spinner />;
 
   const { products, notifs, checks } = data;
+  // The dropdown scopes the per-product tools (currently the network inspector). Default to
+  // the first product; fall back gracefully if the selected one was deleted.
+  const selected = products.find((p) => p.id === selectedId) ?? products[0] ?? null;
   const inStock = products.filter((p) => p.stock_status === "in_stock").length;
   const outStock = products.filter((p) => p.stock_status === "out_of_stock").length;
   const recentChanges = products.filter((p) => p.last_status_change_at).slice(0, 8);
@@ -54,6 +60,23 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
+      {/* Product selector — scopes the per-product tools below (network inspector, and
+          anything product-specific added later). */}
+      {selected && (
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <label className="text-sm font-medium text-slate-600">Inspecting product</label>
+          <select
+            value={selected.id}
+            onChange={(e) => setSelectedId(e.target.value)}
+            className="w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 sm:max-w-md"
+          >
+            {products.map((p) => (
+              <option key={p.id} value={p.id}>{p.title ?? p.url}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard label="Monitored products" value={products.length} accent="bg-indigo-50 text-indigo-600" icon={<Package className="h-5 w-5" />} />
         <StatCard label="In stock" value={inStock} accent="bg-emerald-50 text-emerald-600" icon={<CheckCircle2 className="h-5 w-5" />} />
@@ -62,7 +85,10 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
-        <Card className="xl:col-span-2">
+        <div className="space-y-6 xl:col-span-2">
+          {selected && <NetworkInspector product={selected} />}
+
+          <Card>
           <CardHeader title="Recent status changes" subtitle="Latest stock transitions across your products" />
           {recentChanges.length === 0 ? (
             <EmptyState icon={<Activity className="h-5 w-5" />} title="No activity yet" subtitle="Once checks start landing, status changes appear here." />
@@ -84,7 +110,8 @@ export default function Dashboard() {
               ))}
             </ul>
           )}
-        </Card>
+          </Card>
+        </div>
 
         <div className="space-y-6">
           <WorkerCard />
