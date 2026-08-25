@@ -10,6 +10,15 @@ A React SPA reads one pre-computed verdict per day from Supabase; a Deno edge fu
 computes that verdict once a day from Finnhub quotes + hand-logged DDR5 contract prices.
 Owner: jared@voltara.com.my.
 
+> **2026-08-17: the frontend moved to `../web/` (the unified All-In-One app).** This
+> folder is now BACKEND-ONLY: the `fin-daily-signal` edge function and the migration
+> ledger. The pages live on at `web/src/apps/fin/` (Desk/News/Settings, still plain JSX)
+> with display helpers in `web/src/lib/finSignal.js` and the section shell (data loading +
+> Refresh action) in `web/src/apps/fin/FinShell.tsx`. Everywhere this file says
+> `src/...`, read `web/src/...`. Frontend conventions/deploy live in `web/CLAUDE.md`;
+> everything here about data flow, the verdict, the schema and the edge function is
+> still canonical.
+
 The product philosophy governs the code: **it defaults to Hold and only escalates.** Most
 days it should tell the user to do nothing.
 
@@ -20,13 +29,13 @@ Formerly the standalone **DRAM** repo (`memory-cycle-signal`); moved into All-In
 
 ```
 All-In-One/
-├── lazada-monitor/     # Lazada restock monitor — owns everything lzd_
-└── financial-tracker/  # ← you are here — owns everything fin_
+├── web/                # THE single frontend for all tools (see web/CLAUDE.md)
+├── lazada-monitor/     # Lazada restock monitor backend — owns everything lzd_
+└── financial-tracker/  # ← you are here — backend; owns everything fin_
 ```
 
-Sibling apps are **independent**: separate `package.json`, separate deploys, no shared
-code, no root workspace wiring. There is no build at the repo root — always work from
-inside the app folder.
+Backends stay **independent** (separate deploys, no shared code); the frontends merged
+into `web/` — one Vite app, one Vercel deploy, shared design system.
 
 ## Backend lives in a SHARED Supabase project — read this first
 
@@ -73,30 +82,23 @@ pg_cron "fin-daily-signal" (daily 23:00 UTC = 07:00 MYT) → POSTs the anon JWT 
 financial-tracker/
 ├── CLAUDE.md          ← this file
 ├── README.md          ← runbook
-├── .env               ← gitignored; see "Frontend env" below
-├── vercel.json        ← SPA rewrite — required, the app uses client-side routing
-├── src/
-│   ├── App.jsx           # data loading + router; passes state via Outlet context
-│   ├── index.css         # Tailwind entry (~10 lines) — no bespoke CSS
-│   ├── components/
-│   │   ├── Layout.jsx    # responsive sidebar shell (drawer < lg) + header + footer
-│   │   └── ui.jsx        # design-system primitives — mirror of lazada-monitor's ui.tsx
-│   ├── lib/
-│   │   ├── supabase.js   # client + refreshNow()
-│   │   └── signal.js     # cycleRead() + NAMES + fmtMoney/fmtAgo/fmtNewsDate + numObj()
-│   └── pages/
-│       ├── Desk.jsx      # verdict, prices, contract trigger, cycle, catalysts, journal
-│       ├── News.jsx      # daily semiconductor reading list (INERT — see below)
-│       └── Settings.jsx  # levels, log a print, catalyst outcomes
 └── supabase/
     ├── functions/fin-daily-signal/index.ts   # the ONLY place verdict logic lives
     └── migrations/                           # canonical schema; 0001-0004 use OLD names
+
+(frontend, since the merge)
+web/src/apps/fin/
+├── FinShell.tsx       # data loading + Outlet context + header "Refresh now" portal
+├── Desk.jsx           # verdict, prices, contract trigger, cycle, catalysts, journal
+├── News.jsx           # daily semiconductor reading list (INERT — see below)
+└── Settings.jsx       # levels, log a print, catalyst outcomes
+web/src/lib/finSignal.js   # cycleRead() + NAMES + fmtMoney/fmtAgo/fmtNewsDate + numObj()
 ```
 
-- **`src/App.jsx`** owns all data. `loadAll()` fetches the 4 tables in parallel on mount and
-  hands them to pages through the router's **Outlet context**; every mutation calls
-  `reload()`. There's no react-query here (the sibling app needs it for 30s polling; this
-  verdict changes once a day — nothing to poll).
+- **`FinShell.tsx`** owns all fin data. `loadAll()` fetches the 4 tables in parallel on
+  entering `/fin` and hands them to pages through the router's **Outlet context**; every
+  mutation calls `reload()`. There's no react-query here (the lzd pages need it for 30s
+  polling; this verdict changes once a day — nothing to poll).
 - The **Desk renders even without a snapshot** — only the verdict card and price cards need
   `snap`; the cycle meter, contract log, catalysts, and journal are driven by
   `log`/`cats`/`cfg` and show regardless. The Desk is otherwise read-only *except* the
@@ -130,12 +132,13 @@ All in `public`, all RLS-enabled:
 - `fin_snapshots` — one row per `snapshot_date`; written only by the edge function. Carries
   `intel` (advisory DDR5 read) and `news` (the News tab's 10-item reading list — inert).
 
-**RLS here is deliberately permissive and differs from `lazada-monitor/`.** That app is
-owner-scoped (`user_id = auth.uid()`); this one has no auth at all — the anon role reads
-everything and writes `fin_app_config` / `fin_contract_log` / `fin_catalysts`. That is only
-safe because the deployed URL is kept private. **Don't copy this pattern into a new app,
-and don't "align" it with the lzd_ pattern without adding Supabase Auth first.** Before
-exposing this app publicly, switch to Supabase Auth and scope policies to a uid.
+**RLS: as of `0008`, everything is authenticated + owner-pinned.** The original 0001
+policies had no `TO` clause (→ `public`, so the bare anon key could read/write); `0008`
+replaces them with policies `TO authenticated` gated on `fin_is_owner()` (JWT email =
+jared@voltara.com.my). Differs from `lazada-monitor/`'s `user_id = auth.uid()` pattern
+because these tables have no user_id column — the email pin does the same job for a
+single-owner app. If the login email ever changes, update `fin_is_owner()` or the app
+goes read-nothing.
 
 - The **anon key is public by design** (it ships in the frontend bundle). RLS is the only guard.
 - **`fin_snapshots` has no anon write policy** — written exclusively by the edge function
@@ -153,10 +156,15 @@ exposing this app publicly, switch to Supabase Auth and scope policies to a uid.
 - `0005_fin_prefix.sql` — **the rename to `fin_*`**
 - `0006_fin_daily_signal_cron.sql` — repoints cron at `fin-daily-signal`
 - `0007_fin_snapshot_news.sql` — `fin_snapshots.news` (the News tab's reading list)
+- `0008_fin_authenticated_rls.sql` — replaces the anon policies with authenticated +
+  owner-email-pinned ones (`fin_is_owner()`). **Applied live 2026-08-17** (MCP
+  `fin_authenticated_rls`); verified: anon locked out, owner JWT sees all rows.
+- `0009_lockdown_rls_auto_enable.sql` — revokes client EXECUTE on the platform's
+  `rls_auto_enable()` helper (advisor finding). Applied live 2026-08-17.
 
 Do **not** retro-edit 0001–0004 to the new names: 0002 alters a table 0001 created, so
-rewriting one without the others breaks replay. Replaying `0001 → 0007` on a fresh DB
-yields the correct `fin_` shape. New migrations start at `0008_`.
+rewriting one without the others breaks replay. Replaying `0001 → 0009` on a fresh DB
+yields the correct `fin_` shape. New migrations start at `0010_`.
 
 **Migrations must be applied to the live project** — editing the `.sql` file alone changes
 nothing deployed.
@@ -169,65 +177,32 @@ nothing deployed.
 - Note this app does **not** use the Vault + `lzd_get_secrets()` RPC pattern that
   `lazada-monitor/` uses — it has exactly one secret and reads it from `Deno.env`. Don't
   reach for `lzd_get_secrets()` here; that RPC is the other app's.
-- **Frontend env** (`.env`, gitignored): `VITE_SUPABASE_URL`, `VITE_SUPABASE_ANON_KEY`.
-  Vite **inlines these at build time** — rebuild after any `.env` change. `.env.example`
-  documents the shape; both values are public (the anon JWT is also visible in `0003`).
+- **Frontend env** now lives in `web/.env` (committed — all values public; the anon JWT
+  is also visible in `0003`). See `web/CLAUDE.md` for the two-key setup.
 
 ## UI: one design system across All-In-One
 
-Both apps must read as one product. The house style is **light SaaS**: `bg-slate-50` page,
-white `rounded-xl` cards with `border-slate-200`, **dark `slate-900` sidebar**, **indigo
-primary**, stat-card row on top, `divide-y` lists/tables inside cards.
+The design system and responsive shell are now a **single copy** in
+`web/src/components/ui.tsx` + `Layout.tsx` — the old mirror-by-hand pact is gone. House
+style and shell gotchas are documented in `web/CLAUDE.md`. Still true and specific to
+this tool:
 
-- **`components/ui.jsx` is a deliberate mirror of `lazada-monitor/web/src/components/ui.tsx`**
-  (Button, Input, Select, Textarea, Card, CardHeader, StatusBadge, StatCard, Modal, Switch,
-  Spinner, EmptyState, DataRow, `cn`). Same class strings on purpose. If you change a shared
-  primitive, check whether the sibling app needs the same change. Reuse these rather than
-  ad-hoc markup.
-- The two apps differ only where they must: this one is `.jsx` (the sibling is `.tsx`), has
-  no auth (so the sidebar footer shows data sources, not an email + sign-out), and uses
-  Outlet context instead of react-query.
-- **The shell is responsive and both apps must stay in step.** Below `lg` the sidebar is an
-  off-canvas drawer behind a hamburger; at `lg`+ it's static (`lg:ml-60`). `lg` is used
-  *only* for shell structure — content grids stay on the house `sm:`/`xl:` pattern. Three
-  things fail silently if you touch it: the header must stay **`z-20`** (aside 40 > backdrop
-  30 > header 20 — a `z-30` header would paint over the backdrop and stay clickable);
-  `NavLink` needs `onClick={() => setOpen(false)}` **as well as** the `pathname` effect
-  (tapping the route you're already on doesn't change `pathname`); and it's `lg:ml-60`, not
-  `ml-60`, or content sits inset 240px behind an off-canvas drawer.
-- **Semantic colours are fixed** and shared with the sibling app's stock statuses:
-  emerald = good/`up`/HOLD, amber = watch/WATCH, red = bad/`down`/CAUTION, indigo =
-  primary/ENTRY, slate = unknown/`flat`. Drawdown ramps emerald → yellow → amber → red as it
-  approaches the historical −40/−60% bottom zone.
+- **Semantic colours are fixed** and shared with the lzd stock statuses: emerald =
+  good/`up`/HOLD, amber = watch/WATCH, red = bad/`down`/CAUTION, indigo = primary/ENTRY,
+  slate = unknown/`flat`. Drawdown ramps emerald → yellow → amber → red as it approaches
+  the historical −40/−60% bottom zone.
 - Prices, tickers and dates use `font-mono`; everything else `font-sans` (Inter).
 
-## Local development
+## Local development / deploying
 
-The app is at this folder's root (**not** in a `web/` subfolder — that's `lazada-monitor`'s
-layout, don't assume it here).
-
-```bash
-cd financial-tracker
-npm install
-npm run dev      # http://localhost:5173 (reads .env)
-npm run build    # production build to dist/
-npm run preview  # serve the built bundle
-```
-
-There is **no test suite, linter, or CI**. `npm run build` (Vite + esbuild) is the only
-automated correctness gate — treat a clean build as the bar before shipping frontend
-changes.
-
-## Deploying changes
+Frontend: `cd web && npm run dev` (see `web/CLAUDE.md`; a clean `npm run build` there is
+the bar before shipping). Backend:
 
 - **Edge function**: deploy via the Supabase MCP `deploy_edge_function` (name
   `fin-daily-signal`, `verify_jwt: true`). There is no `supabase` CLI login here; the
   `supabase/functions/` tree is the source mirror, not an auto-deploy.
 - **Schema**: DDL via MCP `apply_migration` (snake_case name); ad-hoc SQL via
   `execute_sql`. Run `get_advisors` after DDL. New DB functions need `set search_path = ''`.
-- **Frontend**: `npm run build`, deploy `dist/` to any static host (Vercel). **Keep the SPA
-  rewrite** in `vercel.json` (all routes → `/index.html`) — the app uses client-side
-  routing, so `/settings` 404s on a static host without it.
 
 ## Housekeeping — two dead edge functions to delete by hand
 
@@ -245,12 +220,11 @@ removed from the Supabase dashboard manually:
   `createClient` throw. Upside: no blank page. Downside: a misconfigured env looks like "no
   data" rather than an error — check the console warning and that the bundle embeds the
   real project URL.
-- **verify_jwt + key type.** The function requires a valid JWT. `refreshNow()` sends the
-  **legacy anon JWT** as `Bearer`, which passes. The modern publishable key
-  (`sb_publishable_…`) is **not a JWT** and will fail function auth — if you migrate the
-  client to it, either keep the anon JWT for `refreshNow()` or redeploy with
-  `verify_jwt: false` + custom auth. (`lazada-monitor/` uses the publishable key; that's
-  why it works there and would break here.)
+- **verify_jwt + key type.** The function requires a valid JWT. `refreshNow()` (in
+  `web/src/lib/supabase.ts`) sends the **legacy anon JWT** as `Bearer`, which passes. The
+  modern publishable key (`sb_publishable_…`) is **not a JWT** and will fail function
+  auth — which is exactly why the unified app keeps BOTH keys in `web/.env`: publishable
+  for the client, anon JWT only for this call. Don't "simplify" one away.
 - **Two price sources, and Yahoo is not optional.** Finnhub is primary; **Yahoo is fetched
   for every ticker** because it carries the 52-week high *and* `currency`, *and* is the price
   fallback. Finnhub's free tier is **US-only** — `/quote` returns `{c:0}` for the Korean

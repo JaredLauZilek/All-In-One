@@ -1,0 +1,13 @@
+{
+  "name": "all-in-one",
+  "private": true,
+  "description": "Convenience scripts for the monorepo. web/ is THE deployable frontend; lazada-monitor/worker/ is an independent npm project (it deploys to Fly and must not share a node_modules).",
+  "scripts": {
+    "dev": "npm --prefix web run dev",
+    "build": "npm --prefix web run build",
+    "preview": "npm --prefix web run preview",
+    "worker": "npm --prefix lazada-monitor/worker start",
+    "worker:selftest": "npm --prefix lazada-monitor/worker run selftest",
+    "install:all": "npm --prefix web install && npm --prefix lazada-monitor/worker install"
+  }
+}

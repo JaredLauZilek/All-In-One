@@ -10,6 +10,13 @@ Telegram alert when a product flips from **out of stock → in stock**. Backend 
 Supabase (Postgres + pg_cron + Edge Functions); frontend is a React/Vite SaaS
 dashboard. Owner: jared@voltara.com.my. Alerts go through Telegram bot **@pokemonAIO_bot**.
 
+> **2026-08-17: the frontend moved to `../web/` (the unified All-In-One app).** The old
+> `web/` subfolder here is gone; its pages live on at `web/src/apps/lzd/`
+> (Dashboard/Products/Notifications/Settings + NetworkInspector) with the client, types
+> and helpers merged into `web/src/lib/supabase.ts`, mounted under the `/lzd` routes.
+> Frontend conventions/deploy live in `web/CLAUDE.md`; everything here about the worker,
+> the data model, Telegram and Lazada behaviour is still canonical.
+
 ## Backend lives in a SHARED Supabase project — read this first
 
 Project **DRAM** (`vjqbircarzxcxrdzlyxj`, org "Personal Tools" `kwuuwijzamsjkwvdlquk`).
@@ -64,15 +71,14 @@ lazada-monitor/
 │   ├── src/lazada.js      # browser stock detection (the reliable signal)
 │   ├── src/selftest.js    # `node src/selftest.js` — verify detector, no DB/secrets
 │   └── Dockerfile + fly.toml
-├── supabase/functions/            # mirror of what's deployed; deploy via Supabase MCP
-│   └── lzd-telegram-webhook/  index.ts + telegram.ts   (the only edge function left)
-└── web/                           # Vite + React + TS + Tailwind v4
-    └── src/
-        ├── App.tsx        # auth gate, router, RealtimeBridge (invalidates queries on
-        │                  #   lzd_products / lzd_notifications changes)
-        ├── lib/supabase.ts   # client + types + fmtPrice() + parseLazadaUrl() + BOT_USERNAME
-        ├── components/    Layout.tsx (sidebar shell), ui.tsx (design-system primitives)
-        └── pages/         Login, Dashboard, Products, Notifications, Settings
+└── supabase/functions/            # mirror of what's deployed; deploy via Supabase MCP
+    └── lzd-telegram-webhook/  index.ts + telegram.ts   (the only edge function left)
+
+(frontend, since the merge — see web/CLAUDE.md)
+web/src/apps/lzd/      Dashboard, Products, Notifications, Settings, NetworkInspector
+web/src/lib/supabase.ts   one shared client + lzd types + fmtPrice() + parseLazadaUrl()
+web/src/App.tsx           auth gate, router, RealtimeBridge (invalidates queries on
+                          lzd_products / lzd_notifications changes)
 ```
 
 ## Data model (all RLS-enabled)
@@ -102,8 +108,9 @@ Callers use `admin.rpc("lzd_get_secrets")`. Current secrets — only two:
 The webhook secret is injected into the `setWebhook` call via `execute_sql` — **keep it
 out of `apply_migration`** so it never lands in committed migration history. The worker's
 own credentials (`SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY`) live in `fly secrets`, not
-in Vault and not in the repo. The only secrets in the repo are the frontend's publishable
-values in `web/.env` (Supabase URL + publishable key), which are safe to expose.
+in Vault and not in the repo. The only secrets in the repo are the frontend's public
+values in `web/.env` at the repo root (Supabase URL + publishable key + legacy anon
+JWT), which are safe to expose.
 
 ## Stock can only be read by a browser (the single most important fact here)
 
@@ -155,16 +162,16 @@ check is ~6–7 s (page load dominates; the hydration wait is adaptive, ~0.2–1
 
 ## Local development
 
-The app is in the **`web/` subfolder** — a bare `npm run dev` at the repo root fails.
+The frontend is the unified app at the **repo root's `web/`** folder:
 
 ```bash
-cd lazada-monitor/web
+cd web            # (or run these from the repo root — it proxies)
 npm install
-npm run dev      # http://localhost:5173
-npm run build    # tsc -b && vite build — run this before committing frontend changes
+npm run dev       # http://localhost:5173 — this tool lives under /lzd
+npm run build     # tsc -b && vite build — run this before committing frontend changes
 ```
 
-`vite.config.ts` sets `server.host: true, allowedHosts: true` so the GitHub Codespaces
+`web/vite.config.ts` sets `server.host: true, allowedHosts: true` so the GitHub Codespaces
 forwarded domain (`*.app.github.dev`) works — don't remove it or Codespace previews break.
 
 ## Deploying changes
@@ -178,8 +185,8 @@ forwarded domain (`*.app.github.dev`) works — don't remove it or Codespace pre
 - **Schema**: DDL via MCP `apply_migration` (snake_case name); ad-hoc/secret-bearing SQL
   via `execute_sql`. Run `get_advisors` after DDL. New functions need
   `set search_path = ''`.
-- **Frontend**: `npm run build`, deploy `web/dist/` to any static host (Vercel). **Add a
-  SPA rewrite** (all routes → `/index.html`) — the app uses client-side routing.
+- **Frontend**: push to `main` — the single Vercel project builds `web/` via the root
+  `vercel.json` (SPA rewrite included). See `web/CLAUDE.md`.
 
 ## Deploying the worker
 
@@ -213,14 +220,10 @@ and preview removed the `lazada.ts` duplication entirely — stock logic now exi
   out_of_stock=red, blocked=amber, error=orange, unknown=slate. Reuse the primitives in
   `components/ui.tsx` (Button, Card, StatusBadge, Modal, Switch, StatCard, …) rather than
   ad-hoc markup.
-- **The shell is responsive and is shared-by-convention with `financial-tracker/`** — the two
-  `Layout` files have no shared code, so changes must be applied by hand to both. Below `lg`
-  the sidebar is an off-canvas drawer behind a hamburger; at `lg`+ it's static (`lg:ml-60`).
-  Gotchas: the header must stay **`z-20`** (aside 40 > backdrop 30 > header 20, or the header
-  paints over the backdrop and stays clickable); `NavLink` needs `onClick` to close *as well
-  as* the `pathname` effect (tapping the current route doesn't change `pathname`).
-  Wide tables need `overflow-x-auto` + a `min-w-[…]` (see `Products.tsx`) so the table
-  scrolls inside its card instead of the whole page.
+- **The shell and design system are now a single copy** in `web/src/components/`
+  (`Layout.tsx` + `ui.tsx`) shared by every tool — gotchas documented in `web/CLAUDE.md`.
+  Wide tables still need `overflow-x-auto` + a `min-w-[…]` (see `apps/lzd/Products.tsx`)
+  so the table scrolls inside its card instead of the whole page.
 - Don't fabricate `stock_status` in the DB to "test" while checks are in flight — the next
   real check overwrites it. To test an alert, pause the product first, set
   `out_of_stock`, then reactivate (see README).

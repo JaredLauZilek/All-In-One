@@ -2,3 +2,7 @@ node_modules/
 dist/
 *.local
 *.tsbuildinfo
+
+# Claude Code local config — settings.json once leaked a live password into the
+# public repo (rotated 2026-08-17); never track this directory again.
+.claude/
