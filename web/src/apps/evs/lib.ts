@@ -20,6 +20,15 @@ export interface ScanTrade {
   impliedMovePct: number | null;
   budget: number;
   contracts: number;
+  outlayPerContract: number;
+  totalOutlay: number | null;
+  backtest: { meanPct: number; sdPct: number; winRatePct: number; expectedPnl: number | null };
+  totalLossRisk: {
+    probPct: number;
+    moveUpPct: number | null;
+    moveDownPct: number | null;
+    assumption: string;
+  } | null;
   entryHint: string;
   exitHint: string;
 }

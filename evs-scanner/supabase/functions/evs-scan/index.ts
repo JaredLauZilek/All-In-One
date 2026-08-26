@@ -24,6 +24,14 @@ const VOLUME_THRESHOLD = 1_500_000;
 const IV_RV_THRESHOLD = 1.25;
 const KELLY_FRACTION = 0.06; // 10% Kelly ≈ 6% of portfolio per calendar debit
 
+// Backtest profile for the FILTERED calendar (strategy guide) — used to turn
+// the debit into an expected-result line. These are the creator's claims.
+const CAL_MEAN_PCT = 7.3;
+const CAL_SD_PCT = 28;
+const CAL_WIN_RATE_PCT = 66;
+// Spread worth ≤ this fraction of the debit at exit counts as "wiped out".
+const WIPEOUT_VALUE_FRACTION = 0.1;
+
 const UA =
   "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36";
 
@@ -171,6 +179,26 @@ function yangZhang(candles: { o: number; h: number; l: number; c: number }[]): n
   const k = 0.34 / (1.34 + (n + 1) / (n - 1));
   const v = varOf(on) + k * varOf(oc) + (1 - k) * (rs.reduce((a, b) => a + b, 0) / rs.length);
   return v > 0 ? Math.sqrt(v * 252) : null;
+}
+
+// Standard normal CDF (Abramowitz–Stegun) — good to ~7 decimal places.
+function normCdf(x: number): number {
+  const t = 1 / (1 + 0.2316419 * Math.abs(x));
+  const d = 0.3989423 * Math.exp((-x * x) / 2);
+  const p = d * t * (0.3193815 + t * (-0.3565638 + t * (1.781478 + t * (-1.821256 + t * 1.330274))));
+  return x > 0 ? 1 - p : p;
+}
+
+// Black-Scholes price, zero rates — good enough for a 1-day-vs-30-day
+// wipeout scenario, where the vol assumption dwarfs the rate term.
+function bsPrice(type: "call" | "put", s: number, k: number, tYears: number, iv: number): number {
+  if (tYears <= 0 || iv <= 0) return Math.max(0, type === "call" ? s - k : k - s);
+  const sq = iv * Math.sqrt(tYears);
+  const d1 = (Math.log(s / k) + 0.5 * iv * iv * tYears) / sq;
+  const d2 = d1 - sq;
+  return type === "call"
+    ? s * normCdf(d1) - k * normCdf(d2)
+    : k * normCdf(-d2) - s * normCdf(-d1);
 }
 
 function closeToCloseVol(closes: number[]): number | null {
@@ -346,6 +374,40 @@ Deno.serve(async (req: Request) => {
         if (debit <= 0) warnings.push("Computed debit is zero/negative — quotes look unreliable; re-check near the close.");
         else if (debit * 100 > budget) warnings.push(`One contract ($${(debit * 100).toFixed(0)}) exceeds your ${(th.kelly * 100).toFixed(0)}% budget ($${budget.toFixed(0)}) — skip rather than oversize.`);
 
+        // Money in + expected result (backtest claims applied to this outlay).
+        const outlayPerContract = Math.round(debit * 100);
+        const totalOutlay = contracts > 0 ? outlayPerContract * contracts : null;
+        const expectedPnl = debit > 0 ? Math.round((CAL_MEAN_PCT / 100) * (totalOutlay ?? outlayPerContract)) : null;
+
+        // Total-loss risk: revalue both legs at exit (front ~last day, back
+        // ~29d) with IV crushed to the 30-day level, find the gap size that
+        // leaves the spread worth ≤10% of the debit, and price that gap off
+        // the market's own implied move (E|X| = σ·√(2/π) → σ = move/0.7979).
+        let totalLossRisk = null;
+        const impliedFrac = straddle > 0 ? straddle / spot : null;
+        if (debit > 0 && impliedFrac && iv30 > 0) {
+          const sigma = impliedFrac / 0.7979;
+          const tF = Math.max(0.5, front.dte - 1) / 365;
+          const tB = Math.max(1, back.dte - 1) / 365;
+          const valAt = (m: number) =>
+            bsPrice(side, spot * (1 + m), strike, tB, iv30) - bsPrice(side, spot * (1 + m), strike, tF, iv30);
+          const findWipe = (dir: 1 | -1): number | null => {
+            for (let m = 0.005; m <= 0.6; m += 0.005) {
+              if (valAt(dir * m) <= debit * WIPEOUT_VALUE_FRACTION) return m;
+            }
+            return null;
+          };
+          const up = findWipe(1);
+          const down = findWipe(-1);
+          const prob = (up !== null ? 1 - normCdf(up / sigma) : 0) + (down !== null ? normCdf(-down / sigma) : 0);
+          totalLossRisk = {
+            probPct: Math.round(prob * 1000) / 10,
+            moveUpPct: up !== null ? Math.round(up * 1000) / 10 : null,
+            moveDownPct: down !== null ? Math.round(down * 1000) / 10 : null,
+            assumption: "Legs revalued post-crush at the 30-day IV; earnings-gap distribution from the market's implied move.",
+          };
+        }
+
         trade = {
           structure: "calendar",
           side,
@@ -358,6 +420,10 @@ Deno.serve(async (req: Request) => {
           impliedMovePct: straddle > 0 ? Math.round((straddle / spot) * 1000) / 10 : null,
           budget: Math.round(budget),
           contracts,
+          outlayPerContract,
+          totalOutlay,
+          backtest: { meanPct: CAL_MEAN_PCT, sdPct: CAL_SD_PCT, winRatePct: CAL_WIN_RATE_PCT, expectedPnl },
+          totalLossRisk,
           entryHint: "Enter ~15 min before the last US market close before the announcement.",
           exitHint: "Close the whole spread ~15 min after the first US open after earnings — win or lose.",
         };

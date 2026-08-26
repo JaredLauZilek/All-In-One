@@ -271,9 +271,38 @@ function TradeCard({ result, onLog, logging, logged }: {
           tone={t.contracts > 0 ? undefined : "bad"}
         />
       </div>
+      <div className="grid grid-cols-1 gap-x-8 gap-y-2 border-t border-slate-100 px-5 py-4 sm:grid-cols-2">
+        <DataRow
+          label="Money in (max loss)"
+          value={t.totalOutlay != null ? `$${t.totalOutlay}` : `$${t.outlayPerContract} / contract`}
+        />
+        <DataRow
+          label={`Backtest avg (+${t.backtest.meanPct}%, ${t.backtest.winRatePct}% win)`}
+          value={t.backtest.expectedPnl != null ? `≈ +$${t.backtest.expectedPnl} / trade` : "—"}
+          tone="good"
+        />
+        <DataRow
+          label="Chance debit → ~0"
+          value={
+            t.totalLossRisk
+              ? `~${t.totalLossRisk.probPct}% · needs ${t.totalLossRisk.moveDownPct != null ? `−${t.totalLossRisk.moveDownPct}%` : "n/a"} / ${t.totalLossRisk.moveUpPct != null ? `+${t.totalLossRisk.moveUpPct}%` : "n/a"} gap`
+              : "n/a"
+          }
+          tone={t.totalLossRisk && t.totalLossRisk.probPct >= 5 ? "bad" : t.totalLossRisk ? "warn" : undefined}
+        />
+        <DataRow label={`One trade can swing (±${t.backtest.sdPct}%)`} value={
+          t.totalOutlay != null ? `≈ ±$${Math.round((t.backtest.sdPct / 100) * t.totalOutlay)}` : "—"
+        } />
+      </div>
       <div className="space-y-1.5 border-t border-slate-100 px-5 py-4">
         <p className="text-xs text-slate-500">▸ {t.entryHint}</p>
         <p className="text-xs text-slate-500">▸ {t.exitHint}</p>
+        {t.totalLossRisk && (
+          <p className="text-[11px] leading-relaxed text-slate-400">
+            Total-loss estimate: {t.totalLossRisk.assumption} Expected-result line is the backtest's
+            claimed average applied to your outlay — not a promise; the whole debit is always at risk.
+          </p>
+        )}
       </div>
     </Card>
   );
