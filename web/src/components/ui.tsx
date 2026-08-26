@@ -120,6 +120,14 @@ const badgeStyles: Record<string, string> = {
   down: "bg-red-50 text-red-700 ring-red-600/20",
   flat: "bg-slate-100 text-slate-600 ring-slate-500/20",
   mixed: "bg-amber-50 text-amber-700 ring-amber-600/20",
+  // earnings-vol-scanner verdict / filter vocabulary
+  RECOMMEND: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  CONSIDER: "bg-amber-50 text-amber-700 ring-amber-600/20",
+  AVOID: "bg-red-50 text-red-700 ring-red-600/20",
+  PASS: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
+  FAIL: "bg-red-50 text-red-700 ring-red-600/20",
+  open: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
+  closed: "bg-slate-100 text-slate-600 ring-slate-500/20",
 };
 
 const badgeDots: Record<string, string> = {
@@ -137,6 +145,12 @@ const badgeDots: Record<string, string> = {
   up: "bg-emerald-500",
   down: "bg-red-500",
   mixed: "bg-amber-500",
+  RECOMMEND: "bg-emerald-500",
+  CONSIDER: "bg-amber-500",
+  AVOID: "bg-red-500",
+  PASS: "bg-emerald-500",
+  FAIL: "bg-red-500",
+  open: "bg-indigo-500",
 };
 
 const badgeLabels: Record<string, string> = {
@@ -155,6 +169,13 @@ const badgeLabels: Record<string, string> = {
   down: "Down",
   flat: "Flat",
   mixed: "Mixed",
+  RECOMMEND: "Recommend",
+  CONSIDER: "Consider",
+  AVOID: "Avoid",
+  PASS: "Pass",
+  FAIL: "Fail",
+  open: "Open",
+  closed: "Closed",
 };
 
 export function StatusBadge({ status, dot = true }: { status: string; dot?: boolean }) {

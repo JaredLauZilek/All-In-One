@@ -11,6 +11,8 @@ the two previously separate frontends on 2026-08-17:
 
 - **Financial Desk** (`/fin`) — from `financial-tracker/` (backend still lives there)
 - **Restock Monitor** (`/lzd`) — from `lazada-monitor/web/` (deleted; worker + edge fns remain)
+- **Earnings Vol Scanner** (`/evs`) — added 2026-08-26; backend in `evs-scanner/`
+  (edge fn `evs-scan` does all the math — see that folder's CLAUDE.md)
 
 plus two pages of its own: the **Home launcher** (`/`) and **Infrastructure** (`/infra`),
 which lists every external service (Supabase, Fly.io, Vercel, Telegram, Finnhub, GitHub)

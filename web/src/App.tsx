@@ -15,6 +15,9 @@ import LzdDashboard from "./apps/lzd/Dashboard";
 import LzdProducts from "./apps/lzd/Products";
 import LzdNotifications from "./apps/lzd/Notifications";
 import LzdSettings from "./apps/lzd/Settings";
+import EvsScanner from "./apps/evs/Scanner";
+import EvsTrades from "./apps/evs/Trades";
+import EvsSettings from "./apps/evs/Settings";
 import { Spinner } from "./components/ui";
 
 const queryClient = new QueryClient({
@@ -78,6 +81,11 @@ export default function App() {
             <Route path="/lzd/products" element={<LzdProducts />} />
             <Route path="/lzd/notifications" element={<LzdNotifications />} />
             <Route path="/lzd/settings" element={<LzdSettings />} />
+            {/* Earnings Vol Scanner — pages self-fetch; the scan runs in the
+                evs-scan edge function */}
+            <Route path="/evs" element={<EvsScanner />} />
+            <Route path="/evs/trades" element={<EvsTrades />} />
+            <Route path="/evs/settings" element={<EvsSettings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

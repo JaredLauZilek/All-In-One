@@ -6,11 +6,15 @@ Jared's personal tool suite — one repo, **one deployable app**, one login.
 All-In-One/
 ├── web/                  ← THE frontend (Vite + React + TS). Home launcher at /,
 │                            Financial Desk at /fin, Restock Monitor at /lzd,
-│                            Infrastructure hub at /infra. See web/CLAUDE.md.
+│                            Earnings Vol Scanner at /evs, Infrastructure hub
+│                            at /infra. See web/CLAUDE.md.
 ├── financial-tracker/    ← Financial Desk BACKEND: fin-daily-signal edge fn +
 │                            migration ledger. See its CLAUDE.md.
 ├── lazada-monitor/       ← Restock Monitor BACKEND: Fly.io Playwright worker +
 │                            lzd-telegram-webhook edge fn. See its CLAUDE.md.
+├── evs-scanner/          ← Earnings Vol Scanner BACKEND: evs-scan edge fn +
+│                            migration ledger. See its CLAUDE.md; strategy in
+│                            docs/earnings-volatility-strategy-guide.md.
 ├── vercel.json           ← single Vercel deploy config (builds web/, SPA rewrite)
 └── package.json          ← convenience scripts (npm run dev/build proxy into web/)
 ```

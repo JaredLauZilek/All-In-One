@@ -4,7 +4,7 @@
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
 import { formatDistanceToNow } from "date-fns";
-import { LineChart, Radar, Server, ArrowRight } from "lucide-react";
+import { LineChart, Radar, Server, ArrowRight, CandlestickChart } from "lucide-react";
 import { supabase, WORKER_STALE_SECS, type WorkerState } from "../lib/supabase";
 import { Card, StatusBadge, cn } from "../components/ui";
 
@@ -12,15 +12,17 @@ function useHomeStatus() {
   return useQuery({
     queryKey: ["home-status"],
     queryFn: async () => {
-      const [snap, products, worker] = await Promise.all([
+      const [snap, products, worker, evs] = await Promise.all([
         supabase.from("fin_snapshots").select("snapshot_date, verdict").order("snapshot_date", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("lzd_products").select("stock_status, is_active"),
         supabase.from("lzd_worker_state").select("*").maybeSingle(),
+        supabase.from("evs_trades").select("status"),
       ]);
       return {
         snap: snap.data as { snapshot_date: string; verdict: string } | null,
         products: (products.data ?? []) as { stock_status: string; is_active: boolean }[],
         worker: worker.data as WorkerState | null,
+        evsTrades: (evs.data ?? []) as { status: string }[],
       };
     },
   });
@@ -77,6 +79,23 @@ export default function Home() {
                 <span className="text-slate-400">
                   · {active.length} watched · {inStock} in stock
                 </span>
+              </span>
+            ) : (
+              <span className="text-xs text-slate-400">Loading…</span>
+            )
+          }
+        />
+        <AppTile
+          to="/evs"
+          icon={<CandlestickChart className="h-6 w-6 text-white" />}
+          iconBg="bg-amber-500"
+          name="Earnings Vol Scanner"
+          description="Checks a ticker's upcoming earnings against the three-filter calendar-spread strategy."
+          status={
+            data ? (
+              <span className="text-xs text-slate-400">
+                {data.evsTrades.length} play{data.evsTrades.length === 1 ? "" : "s"} logged
+                {" · "}{data.evsTrades.filter((t) => t.status === "open").length} open
               </span>
             ) : (
               <span className="text-xs text-slate-400">Loading…</span>

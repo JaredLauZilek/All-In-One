@@ -8,8 +8,8 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
-  Boxes, Home, LogOut, Menu, Server, ChevronDown, LineChart, Radar,
-  Gauge, Newspaper, SlidersHorizontal,
+  Boxes, Home, LogOut, Menu, Server, ChevronDown, LineChart, Radar, CandlestickChart,
+  Gauge, Newspaper, SlidersHorizontal, Crosshair, NotebookPen,
   LayoutDashboard, Package, Bell, Settings as SettingsIcon,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
@@ -40,6 +40,16 @@ const APPS = [
       { to: "/lzd/settings", label: "Settings", icon: SettingsIcon },
     ],
   },
+  {
+    base: "/evs",
+    name: "Earnings Vol",
+    icon: CandlestickChart,
+    items: [
+      { to: "/evs", label: "Scanner", icon: Crosshair, end: true },
+      { to: "/evs/trades", label: "Trades", icon: NotebookPen },
+      { to: "/evs/settings", label: "Settings", icon: SlidersHorizontal },
+    ],
+  },
 ];
 
 const TITLES: Record<string, string> = {
@@ -51,6 +61,9 @@ const TITLES: Record<string, string> = {
   "/lzd/products": "Restock Monitor · Products",
   "/lzd/notifications": "Restock Monitor · Notifications",
   "/lzd/settings": "Restock Monitor · Settings",
+  "/evs": "Earnings Vol Scanner",
+  "/evs/trades": "Earnings Vol · Trades",
+  "/evs/settings": "Earnings Vol · Settings",
   "/infra": "Infrastructure",
 };
 
