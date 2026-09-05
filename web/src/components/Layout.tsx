@@ -9,7 +9,7 @@ import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Boxes, Home, LogOut, Server, LineChart, CandlestickChart,
-  Gauge, Newspaper, SlidersHorizontal, Crosshair, NotebookPen, ChevronDown,
+  Gauge, Newspaper, SlidersHorizontal, Crosshair, NotebookPen, ChevronDown, Sun, Moon,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { cn } from "./ui";
@@ -47,18 +47,50 @@ const SECTIONS = [
 const topPill = ({ isActive }: { isActive: boolean }) =>
   cn(
     "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition-colors",
-    isActive ? "bg-ink text-white" : "text-slate-600 hover:bg-slate-100",
+    // dark mode flips the active pill to lime (ink-on-ink would vanish)
+    isActive ? "bg-ink text-white dark:bg-accent dark:text-ink" : "text-slate-600 hover:bg-slate-100",
   );
+
+// Light/dark toggle, shared by the rail pill and the profile dropdown.
+function useTheme() {
+  const [dark, setDark] = useState(() => document.documentElement.classList.contains("dark"));
+  const setTheme = (d: boolean) => {
+    document.documentElement.classList.toggle("dark", d);
+    try { localStorage.setItem("aio:theme", d ? "dark" : "light"); } catch { /* ignore */ }
+    setDark(d);
+  };
+  return { dark, setTheme };
+}
+
+function ThemeButtons({ dark, setTheme, size = "h-11 w-11" }: {
+  dark: boolean; setTheme: (d: boolean) => void; size?: string;
+}) {
+  const btn = (active: boolean) =>
+    cn(
+      "flex items-center justify-center rounded-full transition-colors", size,
+      active ? "bg-slate-100 text-slate-900" : "text-slate-400 hover:text-slate-700",
+    );
+  return (
+    <>
+      <button title="Light mode" aria-pressed={!dark} onClick={() => setTheme(false)} className={btn(!dark)}>
+        <Sun className="h-5 w-5" />
+      </button>
+      <button title="Dark mode" aria-pressed={dark} onClick={() => setTheme(true)} className={btn(dark)}>
+        <Moon className="h-5 w-5" />
+      </button>
+    </>
+  );
+}
 
 const subPill = ({ isActive }: { isActive: boolean }) =>
   cn(
     "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition-colors",
-    isActive ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800",
+    isActive ? "bg-surface text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800",
   );
 
 // Reference-style profile tab: avatar + stacked name/email + chevron, opening
 // a small dropdown. Single-user app, so the display name is simply Jared.
-function ProfileMenu({ email }: { email: string }) {
+function ProfileMenu({ email, dark, setTheme }: { email: string; dark: boolean; setTheme: (d: boolean) => void }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
 
@@ -76,7 +108,7 @@ function ProfileMenu({ email }: { email: string }) {
       <button
         onClick={() => setOpen((o) => !o)}
         aria-expanded={open}
-        className="flex items-center gap-2.5 rounded-full bg-white py-1.5 pl-1.5 pr-3 shadow-sm transition-colors hover:bg-slate-100/70"
+        className="flex items-center gap-2.5 rounded-full bg-surface py-1.5 pl-1.5 pr-3 shadow-sm transition-colors hover:bg-slate-100/70"
       >
         <span className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-sm font-bold uppercase text-accent">
           {email.slice(0, 1) || "?"}
@@ -89,10 +121,17 @@ function ProfileMenu({ email }: { email: string }) {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-full z-40 mt-2 w-60 rounded-2xl bg-white p-1.5 shadow-lg ring-1 ring-slate-200/60">
+        <div className="absolute right-0 top-full z-40 mt-2 w-60 rounded-2xl bg-surface p-1.5 shadow-lg ring-1 ring-slate-200/60">
           <div className="border-b border-slate-100 px-3 pb-2.5 pt-2 sm:hidden">
             <p className="text-sm font-bold text-slate-900">Jared</p>
             <p className="truncate text-xs text-slate-500">{email}</p>
+          </div>
+          {/* the rail carries the toggle on lg+; this covers phones/tablets */}
+          <div className="flex items-center justify-between px-3 py-2 lg:hidden">
+            <span className="text-sm font-semibold text-slate-700">Theme</span>
+            <div className="flex gap-1">
+              <ThemeButtons dark={dark} setTheme={setTheme} size="h-8 w-8" />
+            </div>
           </div>
           <button
             onClick={() => supabase.auth.signOut()}
@@ -108,6 +147,7 @@ function ProfileMenu({ email }: { email: string }) {
 
 export default function Layout({ email }: { email: string }) {
   const { pathname } = useLocation();
+  const { dark, setTheme } = useTheme();
   const app = APPS.find((a) => pathname.startsWith(a.base));
   const title = app ? app.name : pathname === "/infra" ? "Infrastructure" : null;
 
@@ -126,7 +166,7 @@ export default function Layout({ email }: { email: string }) {
           </NavLink>
 
           {/* section pills — centered on md+, scrollable row below the bar on mobile */}
-          <nav className="mx-auto hidden items-center gap-1 rounded-full bg-white p-1.5 shadow-sm md:flex">
+          <nav className="mx-auto hidden items-center gap-1 rounded-full bg-surface p-1.5 shadow-sm md:flex">
             {SECTIONS.map((s) => (
               <NavLink key={s.to} to={s.to} end={s.end} className={topPill}>
                 {s.label}
@@ -137,7 +177,7 @@ export default function Layout({ email }: { email: string }) {
           <div className="ml-auto flex items-center gap-2 md:ml-0">
             {/* Sections portal-mount header actions here (the fin Refresh button). */}
             <div id="header-actions" className="flex shrink-0 items-center gap-2" />
-            <ProfileMenu email={email} />
+            <ProfileMenu email={email} dark={dark} setTheme={setTheme} />
           </div>
         </div>
 
@@ -152,8 +192,14 @@ export default function Layout({ email }: { email: string }) {
 
       {/* ---------- body: floating rail + content ---------- */}
       <div className="mx-auto flex max-w-[1440px] items-start gap-6 px-4 pb-12 pt-4 sm:px-8">
-        <aside className="sticky top-24 hidden shrink-0 lg:block">
-          <div className="flex flex-col items-center gap-1.5 rounded-full bg-white p-2 shadow-sm">
+        {/* Reference-style rail: theme pill on top, sections, sign-out pill at
+            the bottom — three separate floating pills. */}
+        <aside className="sticky top-24 hidden shrink-0 flex-col gap-3 lg:flex">
+          <div className="flex flex-col items-center gap-1 rounded-full bg-surface p-2 shadow-sm">
+            <ThemeButtons dark={dark} setTheme={setTheme} />
+          </div>
+
+          <div className="flex flex-col items-center gap-1.5 rounded-full bg-surface p-2 shadow-sm">
             {SECTIONS.map(({ to, label, icon: Icon, end }) => (
               <NavLink
                 key={to}
@@ -163,14 +209,18 @@ export default function Layout({ email }: { email: string }) {
                 className={({ isActive }) =>
                   cn(
                     "flex h-11 w-11 items-center justify-center rounded-full transition-colors",
-                    isActive ? "bg-ink text-white" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
+                    isActive
+                      ? "bg-ink text-white dark:bg-accent dark:text-ink"
+                      : "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
                   )
                 }
               >
                 <Icon className="h-5 w-5" />
               </NavLink>
             ))}
-            <div className="my-1 h-px w-6 bg-slate-200" />
+          </div>
+
+          <div className="flex flex-col items-center rounded-full bg-surface p-2 shadow-sm">
             <button
               onClick={() => supabase.auth.signOut()}
               title="Sign out"

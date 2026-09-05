@@ -16,8 +16,8 @@ export function cn(...classes: (string | false | null | undefined)[]) {
 const buttonVariants = {
   primary: "bg-accent text-ink hover:bg-accent-hover shadow-sm",
   secondary: "bg-slate-100 text-slate-800 hover:bg-slate-200",
-  dark: "bg-ink text-white hover:bg-slate-800 shadow-sm",
-  danger: "bg-white text-red-600 border border-red-200 hover:bg-red-50 shadow-sm",
+  dark: "bg-ink text-white hover:opacity-90 shadow-sm",
+  danger: "bg-surface text-red-600 border border-red-200 hover:bg-red-50 shadow-sm",
   ghost: "text-slate-600 hover:bg-slate-100",
 };
 
@@ -50,7 +50,7 @@ export function Input(props: InputHTMLAttributes<HTMLInputElement>) {
     <input
       {...props}
       className={cn(
-        "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400",
+        "w-full rounded-lg border border-slate-300 bg-surface px-3 py-2 text-sm placeholder:text-slate-400",
         "focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500",
         props.className,
       )}
@@ -63,7 +63,7 @@ export function Select(props: SelectHTMLAttributes<HTMLSelectElement>) {
     <select
       {...props}
       className={cn(
-        "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm",
+        "w-full rounded-lg border border-slate-300 bg-surface px-3 py-2 text-sm",
         "focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500",
         props.className,
       )}
@@ -76,7 +76,7 @@ export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
     <textarea
       {...props}
       className={cn(
-        "w-full rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm placeholder:text-slate-400",
+        "w-full rounded-lg border border-slate-300 bg-surface px-3 py-2 text-sm placeholder:text-slate-400",
         "focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500",
         props.className,
       )}
@@ -86,7 +86,7 @@ export function Textarea(props: TextareaHTMLAttributes<HTMLTextAreaElement>) {
 
 export function Card({ children, className }: { children: ReactNode; className?: string }) {
   return (
-    <div className={cn("rounded-3xl border border-slate-200/50 bg-white shadow-[0_1px_2px_rgba(15,17,13,0.04)]", className)}>
+    <div className={cn("rounded-3xl border border-slate-200/50 bg-surface shadow-[0_1px_2px_rgba(15,17,13,0.04)]", className)}>
       {children}
     </div>
   );
@@ -186,8 +186,8 @@ export function Modal({ open, onClose, title, children, wide }: {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
-      <div className="absolute inset-0 bg-slate-900/40 backdrop-blur-sm" onClick={onClose} />
-      <div className={cn("relative w-full rounded-3xl bg-white shadow-2xl", wide ? "max-w-2xl" : "max-w-md")}>
+      <div className="absolute inset-0 bg-black/40 backdrop-blur-sm" onClick={onClose} />
+      <div className={cn("relative w-full rounded-3xl bg-surface shadow-2xl", wide ? "max-w-2xl" : "max-w-md")}>
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4">
           <h3 className="text-sm font-semibold text-slate-900">{title}</h3>
           <button onClick={onClose} className="rounded-md p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-600">
@@ -213,7 +213,7 @@ export function Switch({ checked, onChange, disabled }: { checked: boolean; onCh
     >
       <span
         className={cn(
-          "inline-block h-4 w-4 transform rounded-full bg-white shadow transition-transform",
+          "inline-block h-4 w-4 transform rounded-full bg-surface shadow transition-transform",
           checked ? "translate-x-5" : "translate-x-1",
         )}
       />

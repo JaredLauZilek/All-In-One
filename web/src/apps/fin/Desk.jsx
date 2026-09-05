@@ -143,7 +143,7 @@ function PriceCell({ t, d }) {
   const name = NAMES[t];
   if (d.error) {
     return (
-      <div className="bg-white px-5 py-4">
+      <div className="bg-surface px-5 py-4">
         <div className="flex items-baseline gap-2">
           <span className="font-mono text-sm font-semibold text-slate-900">{t}</span>
           {name && <span className="truncate text-xs text-slate-400">{name}</span>}
@@ -156,7 +156,7 @@ function PriceCell({ t, d }) {
   const tone = ddTone(dd);
   const up = (d.dayChangePct ?? 0) >= 0;
   return (
-    <div className="bg-white px-5 py-4">
+    <div className="bg-surface px-5 py-4">
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
           <div className="flex items-baseline gap-2">
@@ -270,7 +270,7 @@ function MarketRead({ intel }) {
               href={h.url}
               target="_blank"
               rel="noreferrer noopener"
-              className="flex items-center gap-3 px-3.5 py-2.5 hover:bg-white"
+              className="flex items-center gap-3 px-3.5 py-2.5 hover:bg-surface"
             >
               <StatusBadge status={h.dir} dot={false} />
               <span className="min-w-0 flex-1 truncate text-xs text-slate-600">{h.title}</span>

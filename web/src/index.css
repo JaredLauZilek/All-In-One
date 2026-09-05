@@ -12,6 +12,11 @@
    slate/indigo names in new code; they ARE the theme.
    ============================================================ */
 
+/* Class-based dark mode: `dark` class on <html> (set in main.tsx, toggled from
+   the rail). dark:* utilities work via this variant; MOST dark styling happens
+   by re-declaring the theme tokens under .dark below — same remap trick. */
+@custom-variant dark (&:where(.dark, .dark *));
+
 @theme {
   --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
 
@@ -19,6 +24,7 @@
   --color-accent: #c9f542;        /* lime — primary actions, highlights */
   --color-accent-hover: #b9e636;
   --color-ink: #171a16;           /* near-black with a green undertone */
+  --color-surface: #ffffff;       /* card/pill surface — flips in dark mode */
   --color-forest-600: #35573c;    /* dark feature-card gradient: from */
   --color-forest-950: #0f1a12;    /* dark feature-card gradient: to   */
 
@@ -53,6 +59,60 @@
   --radius-xl: 1rem;
   --radius-2xl: 1.35rem;
   --radius-3xl: 1.75rem;
+}
+
+:root {
+  color-scheme: light;
+}
+
+/* ---------- dark mode: the same tokens, re-declared ----------
+   accent / ink / forest stay constant (the brand); neutrals invert on a warm
+   dark scale, and the pale semantic tints turn into deep tints with lightened
+   text tones. Components keep their light-mode class names. */
+.dark {
+  color-scheme: dark;
+
+  --color-surface: #1d201b;
+
+  --color-slate-50: #131511;   /* canvas + inset panels */
+  --color-slate-100: #262a23;
+  --color-slate-200: #343831;
+  --color-slate-300: #454a41;
+  --color-slate-400: #7d8276;
+  --color-slate-500: #979c8f;
+  --color-slate-600: #b4b9ab;
+  --color-slate-700: #cdd1c5;
+  --color-slate-800: #e2e5da;
+  --color-slate-900: #f2f4ec;
+  --color-slate-950: #ffffff;
+
+  --color-emerald-50: #142a1e;
+  --color-emerald-100: #1a3626;
+  --color-emerald-200: #1f4530;
+  --color-emerald-600: #34d399;
+  --color-emerald-700: #6ee7b7;
+
+  --color-red-50: #2e1815;
+  --color-red-200: #4a2420;
+  --color-red-600: #f87171;
+  --color-red-700: #fca5a5;
+
+  --color-amber-50: #2b2210;
+  --color-amber-200: #4a3a15;
+  --color-amber-600: #fbbf24;
+  --color-amber-700: #fcd34d;
+
+  --color-orange-50: #2c1b10;
+  --color-orange-500: #fb923c;
+  --color-orange-700: #fdba74;
+
+  --color-yellow-600: #facc15;
+
+  --color-indigo-50: #1d2812;
+  --color-indigo-100: #263419;
+  --color-indigo-500: #86bc39;
+  --color-indigo-600: #a3d55d;
+  --color-indigo-700: #bfe387;
 }
 
 body {

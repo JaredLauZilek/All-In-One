@@ -172,6 +172,19 @@ Round is the brand. Radius tokens are bumped globally in `@theme` (xl 1rem, 2xl 
 
   Don't multiply these — one dark card per screen keeps it special.
 
+### Dark mode
+
+Class-based: `dark` on `<html>`, applied pre-paint in `main.tsx` (saved in
+localStorage `aio:theme`; unset = follow system) and toggled from the rail's
+top pill (sun/moon) or the profile dropdown on small screens. **Dark styling is
+the same token remap**: `.dark` in `index.css` re-declares `surface`, the slate
+scale, and the semantic tints/text-tones; `accent`/`ink`/`forest` stay constant.
+Rules: card/pill surfaces use `bg-surface` (never `bg-white` — that class is
+banned now); active ink pills need `dark:bg-accent dark:text-ink` companions
+(ink-on-dark vanishes); `dark:*` variants are for those few static-color spots
+only — everything else must come free via tokens. Check both modes when
+touching UI.
+
 ### Shell (`Layout.tsx`)
 
 TOP bar: lime logo tile + wordmark · centered white pill-group nav with **ink pill for
