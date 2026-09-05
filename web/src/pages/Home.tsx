@@ -3,25 +3,20 @@
 // anything needs attention without opening the tool.
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
-import { LineChart, Radar, Server, ArrowRight, CandlestickChart } from "lucide-react";
-import { supabase, WORKER_STALE_SECS, type WorkerState } from "../lib/supabase";
+import { LineChart, Server, ArrowRight, CandlestickChart } from "lucide-react";
+import { supabase } from "../lib/supabase";
 import { Card, StatusBadge, cn } from "../components/ui";
 
 function useHomeStatus() {
   return useQuery({
     queryKey: ["home-status"],
     queryFn: async () => {
-      const [snap, products, worker, evs] = await Promise.all([
+      const [snap, evs] = await Promise.all([
         supabase.from("fin_snapshots").select("snapshot_date, verdict").order("snapshot_date", { ascending: false }).limit(1).maybeSingle(),
-        supabase.from("lzd_products").select("stock_status, is_active"),
-        supabase.from("lzd_worker_state").select("*").maybeSingle(),
         supabase.from("evs_trades").select("status"),
       ]);
       return {
         snap: snap.data as { snapshot_date: string; verdict: string } | null,
-        products: (products.data ?? []) as { stock_status: string; is_active: boolean }[],
-        worker: worker.data as WorkerState | null,
         evsTrades: (evs.data ?? []) as { status: string }[],
       };
     },
@@ -30,11 +25,6 @@ function useHomeStatus() {
 
 export default function Home() {
   const { data } = useHomeStatus();
-
-  const beat = data?.worker?.last_heartbeat_at ? new Date(data.worker.last_heartbeat_at).getTime() : 0;
-  const workerOnline = beat ? (Date.now() - beat) / 1000 <= WORKER_STALE_SECS : false;
-  const active = data?.products.filter((p) => p.is_active) ?? [];
-  const inStock = active.filter((p) => p.stock_status === "in_stock").length;
 
   return (
     <div className="mx-auto max-w-4xl space-y-8">
@@ -64,28 +54,6 @@ export default function Home() {
           }
         />
         <AppTile
-          to="/lzd"
-          icon={<Radar className="h-6 w-6 text-white" />}
-          iconBg="bg-emerald-500"
-          name="Restock Monitor"
-          description="Watches Lazada product pages and pings Telegram the moment stock returns."
-          status={
-            data ? (
-              <span className="flex items-center gap-2 text-xs">
-                <span className={cn("inline-flex h-2 w-2 rounded-full", workerOnline ? "bg-emerald-500 animate-pulse" : "bg-red-500")} />
-                <span className={workerOnline ? "text-emerald-600" : "text-red-600"}>
-                  {workerOnline ? "Worker online" : "Worker down"}
-                </span>
-                <span className="text-slate-400">
-                  · {active.length} watched · {inStock} in stock
-                </span>
-              </span>
-            ) : (
-              <span className="text-xs text-slate-400">Loading…</span>
-            )
-          }
-        />
-        <AppTile
           to="/evs"
           icon={<CandlestickChart className="h-6 w-6 text-white" />}
           iconBg="bg-amber-500"
@@ -108,15 +76,7 @@ export default function Home() {
           iconBg="bg-slate-700"
           name="Infrastructure"
           description="Every service behind these tools — subscriptions, deploys, dashboards, costs."
-          status={
-            data?.worker?.last_heartbeat_at ? (
-              <span className="text-xs text-slate-400">
-                Worker heartbeat {formatDistanceToNow(new Date(data.worker.last_heartbeat_at), { addSuffix: true })}
-              </span>
-            ) : (
-              <span className="text-xs text-slate-400">Supabase · Fly.io · Vercel · Telegram</span>
-            )
-          }
+          status={<span className="text-xs text-slate-400">Supabase · Vercel · Finnhub · GitHub</span>}
         />
       </div>
     </div>

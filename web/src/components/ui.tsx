@@ -100,16 +100,9 @@ export function CardHeader({ title, subtitle, action }: { title: string; subtitl
 }
 
 const badgeStyles: Record<string, string> = {
-  // lazada-monitor stock/alert vocabulary
-  in_stock: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  out_of_stock: "bg-red-50 text-red-700 ring-red-600/20",
+  // generic
   unknown: "bg-slate-100 text-slate-600 ring-slate-500/20",
-  blocked: "bg-amber-50 text-amber-700 ring-amber-600/20",
   error: "bg-orange-50 text-orange-700 ring-orange-600/20",
-  paused: "bg-slate-100 text-slate-500 ring-slate-400/20",
-  sent: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
-  failed: "bg-red-50 text-red-700 ring-red-600/20",
-  restock: "bg-indigo-50 text-indigo-700 ring-indigo-600/20",
   // financial-tracker verdict / contract-print vocabulary
   HOLD: "bg-emerald-50 text-emerald-700 ring-emerald-600/20",
   WATCH: "bg-amber-50 text-amber-700 ring-amber-600/20",
@@ -131,13 +124,7 @@ const badgeStyles: Record<string, string> = {
 };
 
 const badgeDots: Record<string, string> = {
-  in_stock: "bg-emerald-500",
-  out_of_stock: "bg-red-500",
-  blocked: "bg-amber-500",
   error: "bg-orange-500",
-  sent: "bg-emerald-500",
-  failed: "bg-red-500",
-  restock: "bg-indigo-500",
   HOLD: "bg-emerald-500",
   WATCH: "bg-amber-500",
   ENTRY: "bg-indigo-500",
@@ -154,12 +141,8 @@ const badgeDots: Record<string, string> = {
 };
 
 const badgeLabels: Record<string, string> = {
-  in_stock: "In stock",
-  out_of_stock: "Out of stock",
   unknown: "Unknown",
-  blocked: "Blocked",
   error: "Error",
-  paused: "Paused",
   HOLD: "Hold",
   WATCH: "Watch",
   ENTRY: "Entry level hit",
@@ -266,7 +249,7 @@ export function EmptyState({ icon, title, subtitle, action }: { icon: ReactNode;
   );
 }
 
-// Label/value row used inside cards (mirrors HealthRow on the lzd Dashboard).
+// Label/value row used inside cards.
 export function DataRow({ label, value, tone }: { label: string; value: ReactNode; tone?: "good" | "bad" | "warn" }) {
   return (
     <div className="flex items-center justify-between gap-4">

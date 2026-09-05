@@ -3,18 +3,11 @@
 // can tell us) live health. To register a future service, add an entry to
 // SERVICES below; `live` keys map to the health widgets rendered per card.
 import { useQuery } from "@tanstack/react-query";
-import { formatDistanceToNow } from "date-fns";
-import {
-  Database, Plane, Triangle, Send, LineChart, Github, ExternalLink, Wallet,
-} from "lucide-react";
-import { supabase, WORKER_STALE_SECS, BOT_USERNAME, type WorkerState, type Settings } from "../lib/supabase";
+import { Database, Triangle, LineChart, Github, ExternalLink, Wallet } from "lucide-react";
+import { supabase } from "../lib/supabase";
 import { Card, CardHeader, DataRow, cn } from "../components/ui";
 
 const SUPABASE_PROJECT = "vjqbircarzxcxrdzlyxj";
-// Fly's published price for the worker's preset (shared-cpu-4x, 1GB base RAM
-// included). Keep in step with worker/fly.toml; Fly's dashboard is the billing
-// source of truth — this is a sanity check, not an invoice.
-const FLY_USD_PER_MONTH = 7.78;
 
 interface Service {
   key: string;
@@ -25,7 +18,7 @@ interface Service {
   plan: string;
   cost: string;
   links: { label: string; href: string }[];
-  live?: "supabase" | "fly" | "telegram";
+  live?: "supabase";
 }
 
 const SERVICES: Service[] = [
@@ -34,7 +27,7 @@ const SERVICES: Service[] = [
     name: "Supabase — project “DRAM”",
     icon: Database,
     iconBg: "bg-emerald-100 text-emerald-600",
-    role: "The shared backend: Postgres (fin_* + lzd_* tables), auth, realtime, edge functions (fin-daily-signal, lzd-telegram-webhook) and pg_cron jobs.",
+    role: "The shared backend: Postgres (fin_* + evs_* tables), auth, edge functions (fin-daily-signal, evs-scan) and the daily pg_cron job.",
     plan: "Free tier · org “Personal Tools” · ap-northeast-2 (Seoul)",
     cost: "$0/mo",
     links: [
@@ -43,20 +36,6 @@ const SERVICES: Service[] = [
       { label: "Database", href: `https://supabase.com/dashboard/project/${SUPABASE_PROJECT}/database/tables` },
     ],
     live: "supabase",
-  },
-  {
-    key: "fly",
-    name: "Fly.io — lazada-monitor-worker",
-    icon: Plane,
-    iconBg: "bg-violet-100 text-violet-600",
-    role: "Playwright + Chromium worker that actually checks Lazada stock (a real browser is the only reliable signal) and sends the Telegram restock alerts.",
-    plan: "1 machine · shared-cpu-4x · Singapore (sin)",
-    cost: `~$${FLY_USD_PER_MONTH.toFixed(2)}/mo`,
-    links: [
-      { label: "App dashboard", href: "https://fly.io/apps/lazada-monitor-worker" },
-      { label: "Billing", href: "https://fly.io/dashboard/personal/billing" },
-    ],
-    live: "fly",
   },
   {
     key: "vercel",
@@ -69,22 +48,11 @@ const SERVICES: Service[] = [
     links: [{ label: "Vercel dashboard", href: "https://vercel.com/dashboard" }],
   },
   {
-    key: "telegram",
-    name: `Telegram — @${BOT_USERNAME}`,
-    icon: Send,
-    iconBg: "bg-sky-100 text-sky-600",
-    role: "Delivers restock alerts and answers /list, /pause, /resume. Webhook lands on the lzd-telegram-webhook edge function.",
-    plan: "Bot API",
-    cost: "$0/mo",
-    links: [{ label: "Open bot", href: `https://t.me/${BOT_USERNAME}` }],
-    live: "telegram",
-  },
-  {
     key: "finnhub",
     name: "Finnhub — market data",
     icon: LineChart,
     iconBg: "bg-indigo-100 text-indigo-600",
-    role: "US quotes for the daily financial verdict (Yahoo Finance covers 52-week highs and the Korean listings, keyless). Key lives as a Supabase edge-function secret.",
+    role: "US quotes for the daily financial verdict (Yahoo Finance covers 52-week highs, the Korean listings, and the earnings scanner's option chains — keyless). Key lives as a Supabase edge-function secret.",
     plan: "Free tier · US symbols only",
     cost: "$0/mo",
     links: [{ label: "Finnhub dashboard", href: "https://finnhub.io/dashboard" }],
@@ -94,7 +62,7 @@ const SERVICES: Service[] = [
     name: "GitHub — All-In-One repo",
     icon: Github,
     iconBg: "bg-slate-200 text-slate-700",
-    role: "Single repo for everything: this frontend (web/), the Fly worker, edge-function sources and the migration ledger.",
+    role: "Single repo for everything: this frontend (web/), edge-function sources and the migration ledgers.",
     plan: "Private repo",
     cost: "$0/mo",
     links: [{ label: "JaredLauZilek/All-In-One", href: "https://github.com/JaredLauZilek/All-In-One" }],
@@ -105,18 +73,12 @@ function useInfraStatus() {
   return useQuery({
     queryKey: ["infra-status"],
     queryFn: async () => {
-      const [worker, settings, snap] = await Promise.all([
-        supabase.from("lzd_worker_state").select("*").maybeSingle(),
-        supabase.from("lzd_settings").select("telegram_chat_id, telegram_username").maybeSingle(),
-        supabase.from("fin_snapshots").select("snapshot_date, created_at").order("snapshot_date", { ascending: false }).limit(1).maybeSingle(),
-      ]);
-      return {
-        worker: worker.data as WorkerState | null,
-        settings: settings.data as Pick<Settings, "telegram_chat_id" | "telegram_username"> | null,
-        snap: snap.data as { snapshot_date: string; created_at: string } | null,
-      };
+      const snap = await supabase
+        .from("fin_snapshots").select("snapshot_date, created_at")
+        .order("snapshot_date", { ascending: false }).limit(1).maybeSingle();
+      return { snap: snap.data as { snapshot_date: string; created_at: string } | null };
     },
-    refetchInterval: 15000,
+    refetchInterval: 60000,
   });
 }
 
@@ -132,10 +94,10 @@ export default function Infrastructure() {
           </div>
           <div>
             <p className="text-xs font-medium text-slate-500">Total running cost</p>
-            <p className="mt-0.5 text-2xl font-semibold text-slate-900">~${FLY_USD_PER_MONTH.toFixed(2)}/mo</p>
+            <p className="mt-0.5 text-2xl font-semibold text-slate-900">$0/mo</p>
           </div>
           <p className="ml-auto max-w-xs text-right text-xs text-slate-400">
-            The Fly worker is the only paid piece — everything else rides free tiers.
+            Everything rides free tiers since the Fly.io worker was retired with the Restock Monitor (2026-08-29).
           </p>
         </div>
       </Card>
@@ -176,9 +138,7 @@ function ServiceCard({ service, data }: { service: Service; data: ReturnType<typ
           <p className="text-sm leading-relaxed text-slate-600">{service.role}</p>
         </div>
 
-        {service.live === "fly" && <FlyHealth worker={data?.worker ?? null} />}
         {service.live === "supabase" && <SupabaseHealth snap={data?.snap ?? null} />}
-        {service.live === "telegram" && <TelegramHealth settings={data?.settings ?? null} />}
 
         <div className="mt-auto flex flex-wrap gap-x-4 gap-y-1 border-t border-slate-100 pt-3">
           {service.links.map((l) => (
@@ -198,27 +158,6 @@ function ServiceCard({ service, data }: { service: Service; data: ReturnType<typ
   );
 }
 
-/* ---------- live health widgets (all read straight from the DB) ---------- */
-
-function FlyHealth({ worker }: { worker: WorkerState | null }) {
-  const beat = worker?.last_heartbeat_at ? new Date(worker.last_heartbeat_at).getTime() : 0;
-  const ageSecs = beat ? (Date.now() - beat) / 1000 : Infinity;
-  const online = ageSecs <= WORKER_STALE_SECS;
-  return (
-    <div className="space-y-2 rounded-lg bg-slate-50 px-3.5 py-3">
-      <DataRow
-        label="Worker"
-        value={!beat ? "Never started" : online ? "Online" : "Stale — check fly logs"}
-        tone={!beat ? "bad" : online ? "good" : "bad"}
-      />
-      {worker?.started_at && (
-        <DataRow label="Up since" value={formatDistanceToNow(new Date(worker.started_at), { addSuffix: true })} />
-      )}
-      {worker && <DataRow label="Checks completed" value={worker.checks_completed.toLocaleString()} />}
-    </div>
-  );
-}
-
 function SupabaseHealth({ snap }: { snap: { snapshot_date: string; created_at: string } | null }) {
   // The daily cron writes one fin_snapshots row per day; a fresh row is the
   // cheapest end-to-end proof that cron + edge functions + DB are all alive.
@@ -231,20 +170,7 @@ function SupabaseHealth({ snap }: { snap: { snapshot_date: string; created_at: s
         value={snap ? `Last snapshot ${snap.snapshot_date}` : "No snapshot yet"}
         tone={ok ? "good" : "warn"}
       />
-      <DataRow label="Realtime + auth" value="In use by this app" tone="good" />
-    </div>
-  );
-}
-
-function TelegramHealth({ settings }: { settings: Pick<Settings, "telegram_chat_id" | "telegram_username"> | null }) {
-  const linked = !!settings?.telegram_chat_id;
-  return (
-    <div className="space-y-2 rounded-lg bg-slate-50 px-3.5 py-3">
-      <DataRow
-        label="Account link"
-        value={linked ? `Connected${settings?.telegram_username ? ` as @${settings.telegram_username}` : ""}` : "Not linked"}
-        tone={linked ? "good" : "warn"}
-      />
+      <DataRow label="Auth + edge functions" value="In use by this app" tone="good" />
     </div>
   );
 }

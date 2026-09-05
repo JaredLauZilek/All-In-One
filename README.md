@@ -5,13 +5,10 @@ Jared's personal tool suite — one repo, **one deployable app**, one login.
 ```
 All-In-One/
 ├── web/                  ← THE frontend (Vite + React + TS). Home launcher at /,
-│                            Financial Desk at /fin, Restock Monitor at /lzd,
-│                            Earnings Vol Scanner at /evs, Infrastructure hub
-│                            at /infra. See web/CLAUDE.md.
+│                            Financial Desk at /fin, Earnings Vol Scanner at
+│                            /evs, Infrastructure hub at /infra. See web/CLAUDE.md.
 ├── financial-tracker/    ← Financial Desk BACKEND: fin-daily-signal edge fn +
 │                            migration ledger. See its CLAUDE.md.
-├── lazada-monitor/       ← Restock Monitor BACKEND: Fly.io Playwright worker +
-│                            lzd-telegram-webhook edge fn. See its CLAUDE.md.
 ├── evs-scanner/          ← Earnings Vol Scanner BACKEND: evs-scan edge fn +
 │                            migration ledger. See its CLAUDE.md; strategy in
 │                            docs/earnings-volatility-strategy-guide.md.
@@ -24,8 +21,7 @@ All-In-One/
 - **Use it**: open the deployed Vercel URL, sign in, pick a tool from the Home screen.
 - **Change frontend**: edit `web/`, `npm run build` clean, push to `main` — Vercel
   redeploys everything together.
-- **Change backends**: edge functions/schema via Supabase MCP; worker via
-  `cd lazada-monitor/worker && fly deploy`.
+- **Change backends**: edge functions/schema via Supabase MCP.
 
 ## One-time Vercel setup (after the 2026-08-17 merge)
 
@@ -35,6 +31,7 @@ All-In-One/
 2. Delete the two old per-app Vercel projects so only this one serves traffic.
 
 Shared Supabase project **DRAM** (`vjqbircarzxcxrdzlyxj`) hosts both tools' backends —
-`fin_*` objects belong to financial-tracker, `lzd_*` to lazada-monitor. Never cross the
-prefixes. The Infrastructure page in the app links every dashboard (Supabase, Fly.io,
-Vercel, Telegram, Finnhub) with live health and monthly cost.
+`fin_*` objects belong to financial-tracker, `evs_*` to evs-scanner. Never cross the
+prefixes. (The `lzd_*` Restock Monitor was removed 2026-08-29 — `docs/lzd-teardown.sql`.)
+The Infrastructure page in the app links every dashboard (Supabase, Vercel, Finnhub,
+GitHub) with live health and monthly cost.

@@ -3,7 +3,7 @@
 Backend home of the **evs** mini-app. The frontend lives in the unified app at
 `web/src/apps/evs/` (Scanner / Trades / Settings under the `/evs` routes); this folder
 holds the edge function and migration ledger. **Everything this app owns is prefixed
-`evs_` / `EVS_` / `evs-`** (siblings: `fin_` financial-tracker, `lzd_` lazada-monitor —
+`evs_` / `EVS_` / `evs-`** (sibling: `fin_` financial-tracker —
 never touch theirs).
 
 ## What this is

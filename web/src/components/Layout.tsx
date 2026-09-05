@@ -8,9 +8,8 @@
 import { useEffect, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
-  Boxes, Home, LogOut, Menu, Server, ChevronDown, LineChart, Radar, CandlestickChart,
+  Boxes, Home, LogOut, Menu, Server, ChevronDown, LineChart, CandlestickChart,
   Gauge, Newspaper, SlidersHorizontal, Crosshair, NotebookPen,
-  LayoutDashboard, Package, Bell, Settings as SettingsIcon,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { cn } from "./ui";
@@ -30,17 +29,6 @@ const APPS = [
     ],
   },
   {
-    base: "/lzd",
-    name: "Restock Monitor",
-    icon: Radar,
-    items: [
-      { to: "/lzd", label: "Dashboard", icon: LayoutDashboard, end: true },
-      { to: "/lzd/products", label: "Products", icon: Package },
-      { to: "/lzd/notifications", label: "Notifications", icon: Bell },
-      { to: "/lzd/settings", label: "Settings", icon: SettingsIcon },
-    ],
-  },
-  {
     base: "/evs",
     name: "Earnings Vol",
     icon: CandlestickChart,
@@ -57,10 +45,6 @@ const TITLES: Record<string, string> = {
   "/fin": "Financial Desk",
   "/fin/news": "Financial Desk · News",
   "/fin/settings": "Financial Desk · Settings",
-  "/lzd": "Restock Monitor",
-  "/lzd/products": "Restock Monitor · Products",
-  "/lzd/notifications": "Restock Monitor · Notifications",
-  "/lzd/settings": "Restock Monitor · Settings",
   "/evs": "Earnings Vol Scanner",
   "/evs/trades": "Earnings Vol · Trades",
   "/evs/settings": "Earnings Vol · Settings",

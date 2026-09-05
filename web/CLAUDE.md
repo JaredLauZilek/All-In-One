@@ -10,17 +10,19 @@ one Vercel deploy, one login (Supabase Auth, single user jared@voltara.com.my). 
 the two previously separate frontends on 2026-08-17:
 
 - **Financial Desk** (`/fin`) — from `financial-tracker/` (backend still lives there)
-- **Restock Monitor** (`/lzd`) — from `lazada-monitor/web/` (deleted; worker + edge fns remain)
+- ~~Restock Monitor (`/lzd`)~~ — **removed 2026-08-29** along with the whole
+  `lazada-monitor/` folder (Fly worker retired, lzd_ DB objects torn down — see
+  `docs/lzd-teardown.sql`)
 - **Earnings Vol Scanner** (`/evs`) — added 2026-08-26; backend in `evs-scanner/`
   (edge fn `evs-scan` does all the math — see that folder's CLAUDE.md)
 
 plus two pages of its own: the **Home launcher** (`/`) and **Infrastructure** (`/infra`),
-which lists every external service (Supabase, Fly.io, Vercel, Telegram, Finnhub, GitHub)
+which lists every external service (Supabase, Vercel, Finnhub, GitHub)
 with live health read straight from the DB.
 
 Each tool's *backend* docs stay canonical in its own folder: read
 `../financial-tracker/CLAUDE.md` for fin_ data-flow/verdict rules and
-`../lazada-monitor/CLAUDE.md` for lzd_ worker/Telegram rules before touching those pages.
+`../evs-scanner/CLAUDE.md` for the earnings-scanner model before touching those pages.
 
 ## Layout
 
@@ -29,17 +31,17 @@ web/
 ├── vercel.json is NOT here — the deploy config is /vercel.json at the REPO ROOT
 ├── .env               ← committed on purpose; all values are public (see Secrets)
 └── src/
-    ├── App.tsx        # auth gate → Login; router; react-query provider; RealtimeBridge
+    ├── App.tsx        # auth gate → Login; router; react-query provider
     ├── components/
     │   ├── Layout.tsx # THE sidebar shell (grouped nav per tool) — single copy now
     │   └── ui.tsx     # design-system primitives — single copy now
     ├── lib/
-    │   ├── supabase.ts   # ONE client (publishable key + auth) + lzd types + refreshNow()
+    │   ├── supabase.ts   # ONE client (publishable key + auth) + refreshNow()
     │   └── finSignal.js  # fin display helpers (cycleRead, fmtMoney, …)
     ├── pages/         Home.tsx (launcher) · Infrastructure.tsx (ops hub) · Login.tsx
     └── apps/
         ├── fin/       FinShell.tsx + Desk/News/Settings (.jsx, ported as-is)
-        └── lzd/       Dashboard/Products/Notifications/Settings/NetworkInspector (.tsx)
+        └── evs/       Scanner/Trades/Settings (.tsx) + lib.ts
 ```
 
 - **`apps/fin/*.jsx` are plain JSX** (ported verbatim from the old app; `allowJs` is on,
@@ -47,10 +49,10 @@ web/
   hard-won gotcha comments.
 - **FinShell** owns the fin section: fetches the four `fin_` tables on entry, passes them
   via Outlet context, and **portals the "Refresh now" button into `#header-actions`**
-  (a slot div in Layout's header). The lzd pages self-fetch with react-query instead —
-  that difference is inherited and intentional (30s polling vs once-a-day data).
-- **Routing**: `/fin`, `/fin/news`, `/fin/settings`, `/lzd`, `/lzd/products`,
-  `/lzd/notifications`, `/lzd/settings`, `/infra`. Titles live in `Layout.tsx` `TITLES`;
+  (a slot div in Layout's header). The evs pages self-fetch with react-query instead —
+  the two data patterns are both intentional (polling-friendly vs once-a-day data).
+- **Routing**: `/fin`, `/fin/news`, `/fin/settings`, `/evs`, `/evs/trades`,
+  `/evs/settings`, `/infra`. Titles live in `Layout.tsx` `TITLES`;
   nav in `NAV_GROUPS`. A new tool = a folder under `apps/`, routes in `App.tsx`, a nav
   group in Layout, a tile in `Home.tsx`, and (if it uses services) entries in
   `Infrastructure.tsx` `SERVICES`.
@@ -70,7 +72,7 @@ queries run as the `authenticated` role.
   load-bearing**: it's what makes a stranger's email bounce ("That email doesn't have
   access") instead of minting an account. Keep **"Allow new users to sign up" OFF** in
   the Supabase dashboard too — the client flag only guards THIS app's calls, not the raw
-  auth API. The change-password card was removed from lzd Settings; passwords are
+  auth API. There is no change-password UI; passwords are
   managed in the Supabase dashboard (Auth → Users) if needed.
 - Magic-link clicks redirect to the project's **Site URL** (Supabase dashboard → Auth →
   URL Configuration) — set it to the deployed Vercel URL or the link lands on the wrong
@@ -87,7 +89,7 @@ queries run as the `authenticated` role.
 
 `web/.env` is **committed**: URL, publishable key, and the legacy anon JWT are all public
 by design (the anon JWT already sits in migration `0003`). Never put the service-role key
-or any `LZD_*` secret anywhere under `web/`. Vite inlines env at build time — rebuild
+or any edge-function secret anywhere under `web/`. Vite inlines env at build time — rebuild
 after changes.
 
 **Two keys on purpose:** the client uses the publishable key, but `refreshNow()` sends
@@ -99,8 +101,8 @@ and the publishable key is not a JWT. Don't "simplify" one away.
 House style unchanged: `bg-slate-50` page, white `rounded-xl` cards + `border-slate-200`,
 dark `slate-900` sidebar, indigo primary, stat-card rows, `divide-y` lists. `ui.tsx` and
 `Layout.tsx` are now the **single copies** (the old mirror-by-hand pact between the two
-apps is dead — edit here, everyone gets it). `StatusBadge` deliberately speaks both
-vocabularies (stock statuses and verdicts/print directions) — same semantic colours.
+apps is dead — edit here, everyone gets it). `StatusBadge` deliberately speaks every
+tool's vocabulary (verdicts, print directions, scanner pass/fail) — same semantic colours.
 
 Shell gotchas (unchanged, still load-bearing): header stays **`z-20`** (aside 40 >
 backdrop 30 > header 20); NavLink needs `onClick={() => setOpen(false)}` **and** the
@@ -125,5 +127,4 @@ client-side routing). One Vercel project for everything; if the two pre-merge Ve
 projects still exist, delete them so only this one serves traffic.
 
 Backends deploy separately and unchanged: edge functions via Supabase MCP
-`deploy_edge_function`, schema via `apply_migration`, worker via `cd lazada-monitor/worker
-&& fly deploy`. See each tool's CLAUDE.md.
+`deploy_edge_function`, schema via `apply_migration`. See each tool's CLAUDE.md.

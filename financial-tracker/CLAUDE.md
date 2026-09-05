@@ -30,7 +30,7 @@ Formerly the standalone **DRAM** repo (`memory-cycle-signal`); moved into All-In
 ```
 All-In-One/
 ├── web/                # THE single frontend for all tools (see web/CLAUDE.md)
-├── lazada-monitor/     # Lazada restock monitor backend — owns everything lzd_
+├── evs-scanner/        # Earnings vol scanner backend — owns everything evs_
 └── financial-tracker/  # ← you are here — backend; owns everything fin_
 ```
 
@@ -42,11 +42,11 @@ into `web/` — one Vite app, one Vercel deploy, shared design system.
 Project **DRAM** (`vjqbircarzxcxrdzlyxj`, org "Personal Tools" `kwuuwijzamsjkwvdlquk`,
 region `ap-northeast-2` Seoul). The project is *named* DRAM for historical reasons — that
 name refers to the Supabase project, **not** to this app, and not only to this app. It
-also hosts the Lazada restock monitor. **Everything this app owns is prefixed `fin_`.**
+also hosts the earnings-vol scanner (evs_). **Everything this app owns is prefixed `fin_`.**
+(The Lazada restock monitor (lzd_) shared this project until its removal on 2026-08-29.)
 
-- **Never touch** these objects — they belong to `lazada-monitor/`: tables `lzd_products`,
-  `lzd_checks`, `lzd_notifications`, `lzd_settings`, `lzd_worker_state`; edge function
-  `lzd-telegram-webhook`; cron job `lzd-prune`; RPC `lzd_get_secrets()`; `LZD_*` secrets.
+- **Never touch** `evs_*` objects — they belong to `evs-scanner/` (tables `evs_settings`,
+  `evs_trades`; edge function `evs-scan`).
 - All tables/functions/cron jobs/secrets for this app **must** start with `fin_` / `FIN_` /
   `fin-`. This is the one rule that keeps the two apps from colliding.
 
@@ -97,7 +97,7 @@ web/src/lib/finSignal.js   # cycleRead() + NAMES + fmtMoney/fmtAgo/fmtNewsDate +
 
 - **`FinShell.tsx`** owns all fin data. `loadAll()` fetches the 4 tables in parallel on
   entering `/fin` and hands them to pages through the router's **Outlet context**; every
-  mutation calls `reload()`. There's no react-query here (the lzd pages need it for 30s
+  mutation calls `reload()`. There's no react-query here (the evs pages need it for
   polling; this verdict changes once a day — nothing to poll).
 - The **Desk renders even without a snapshot** — only the verdict card and price cards need
   `snap`; the cycle meter, contract log, catalysts, and journal are driven by
@@ -135,7 +135,7 @@ All in `public`, all RLS-enabled:
 **RLS: as of `0008`, everything is authenticated + owner-pinned.** The original 0001
 policies had no `TO` clause (→ `public`, so the bare anon key could read/write); `0008`
 replaces them with policies `TO authenticated` gated on `fin_is_owner()` (JWT email =
-jared@voltara.com.my). Differs from `lazada-monitor/`'s `user_id = auth.uid()` pattern
+jared@voltara.com.my). Differs from the evs_ tables' `user_id = auth.uid()` pattern
 because these tables have no user_id column — the email pin does the same job for a
 single-owner app. If the login email ever changes, update `fin_is_owner()` or the app
 goes read-nothing.
@@ -174,9 +174,7 @@ nothing deployed.
 - `FINNHUB_API_KEY` — Supabase **edge function secret** (set and working; all four tickers
   resolve on the Finnhub free tier). `SUPABASE_URL` + `SUPABASE_SERVICE_ROLE_KEY` are
   auto-injected into the function.
-- Note this app does **not** use the Vault + `lzd_get_secrets()` RPC pattern that
-  `lazada-monitor/` uses — it has exactly one secret and reads it from `Deno.env`. Don't
-  reach for `lzd_get_secrets()` here; that RPC is the other app's.
+- This app has exactly one secret and reads it from `Deno.env`.
 - **Frontend env** now lives in `web/.env` (committed — all values public; the anon JWT
   is also visible in `0003`). See `web/CLAUDE.md` for the two-key setup.
 
@@ -187,7 +185,7 @@ The design system and responsive shell are now a **single copy** in
 style and shell gotchas are documented in `web/CLAUDE.md`. Still true and specific to
 this tool:
 
-- **Semantic colours are fixed** and shared with the lzd stock statuses: emerald =
+- **Semantic colours are fixed** across the suite: emerald =
   good/`up`/HOLD, amber = watch/WATCH, red = bad/`down`/CAUTION, indigo = primary/ENTRY,
   slate = unknown/`flat`. Drawdown ramps emerald → yellow → amber → red as it approaches
   the historical −40/−60% bottom zone.
@@ -330,7 +328,7 @@ removed from the Supabase dashboard manually:
 ## Conventions / invariants
 
 - **`fin_` / `FIN_` / `fin-` prefix on everything.** (Restated because it's the big one.)
-- Never touch `lzd_*` objects — they're the sibling app's.
+- Never touch `evs_*` objects — they're the sibling app's.
 - Verdict logic lives in the edge function, once. The frontend never decides.
 - RLS stays on every table; `fin_snapshots` stays service-role-write-only.
 - Reuse `components/ui.jsx` primitives; keep them in step with the sibling app so the two
