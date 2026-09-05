@@ -88,7 +88,7 @@ export default function Infrastructure() {
   return (
     <div className="mx-auto max-w-5xl space-y-6">
       <Card className="p-5">
-        <div className="flex items-center gap-4">
+        <div className="flex flex-wrap items-center gap-4">
           <div className="flex h-11 w-11 items-center justify-center rounded-lg bg-amber-50 text-amber-600">
             <Wallet className="h-5 w-5" />
           </div>
@@ -96,7 +96,8 @@ export default function Infrastructure() {
             <p className="text-xs font-medium text-slate-500">Total running cost</p>
             <p className="mt-0.5 text-2xl font-semibold text-slate-900">$0/mo</p>
           </div>
-          <p className="ml-auto max-w-xs text-right text-xs text-slate-400">
+          {/* full-width line on phones; right-aligned aside on sm+ */}
+          <p className="basis-full text-xs text-slate-400 sm:ml-auto sm:basis-auto sm:max-w-xs sm:text-right">
             Everything rides free tiers since the Fly.io worker was retired with the Restock Monitor (2026-08-29).
           </p>
         </div>

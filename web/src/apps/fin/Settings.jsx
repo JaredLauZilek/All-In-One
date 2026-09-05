@@ -47,7 +47,45 @@ function LevelsCard({ cfg, reload, prices }) {
           <b> Peak</b> is auto-tracked — the 52-week high (via Yahoo), ratcheted up on new highs. You don't set it.
           Enter levels in each listing's <b>own currency</b> (shown per row) — nothing is FX-converted.
         </p>
-        <div className="overflow-x-auto">
+        {/* Phones: one block per ticker — the 4-column table clips its inputs
+            at this width. Same entry/watch state drives both renderings. */}
+        <div className="space-y-3 sm:hidden">
+          {tickers.map((t) => {
+            const ccy = prices?.[t]?.currency ?? "USD";
+            return (
+              <div key={t} className="rounded-xl bg-slate-50 p-3.5">
+                <div className="flex items-baseline justify-between gap-2">
+                  <span className="font-mono text-sm font-semibold text-slate-900">
+                    {t}
+                    <span className="ml-1.5 font-mono text-[10px] font-normal text-slate-400">{ccy}</span>
+                  </span>
+                  <span className="font-mono text-xs text-slate-400">
+                    peak {peaks[t] != null && peaks[t] !== "" ? fmtMoney(peaks[t], ccy) : "—"}
+                  </span>
+                </div>
+                <div className="mt-2.5 grid grid-cols-2 gap-3">
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-medium text-slate-500">Entry ≤</span>
+                    <Input
+                      className="font-mono"
+                      value={entry[t] ?? ""}
+                      onChange={(e) => setEntry({ ...entry, [t]: e.target.value })}
+                    />
+                  </label>
+                  <label className="block">
+                    <span className="mb-1 block text-[11px] font-medium text-slate-500">Watch ≤</span>
+                    <Input
+                      className="font-mono"
+                      value={watch[t] ?? ""}
+                      onChange={(e) => setWatch({ ...watch, [t]: e.target.value })}
+                    />
+                  </label>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+        <div className="hidden overflow-x-auto sm:block">
           <table className="w-full min-w-[34rem] max-w-2xl text-sm">
             <thead>
               <tr className="border-b border-slate-100 text-left">
@@ -138,13 +176,20 @@ function PrintsCard({ log, reload, intel }) {
           </div>
         )}
         <Input placeholder="Period (Aug 2026)" value={period} onChange={(e) => setPeriod(e.target.value)} />
-        <div className="flex gap-3">
-          <Select value={dir} onChange={(e) => setDir(e.target.value)} className="max-w-[8rem]">
-            <option value="up">Up</option>
-            <option value="flat">Flat</option>
-            <option value="down">Down</option>
-          </Select>
-          <Input placeholder="Note (+5% QoQ, decelerating)" value={note} onChange={(e) => setNote(e.target.value)} />
+        {/* flex-wrap + the note's min-width push the note onto its own line on
+            phones (one row would crush it to ~130px); desktop stays one row */}
+        <div className="flex flex-wrap gap-3">
+          {/* wrappers set the widths — Select/Input are w-full inside them */}
+          <div className="w-[7.5rem]">
+            <Select value={dir} onChange={(e) => setDir(e.target.value)}>
+              <option value="up">Up</option>
+              <option value="flat">Flat</option>
+              <option value="down">Down</option>
+            </Select>
+          </div>
+          <div className="min-w-[13rem] flex-1">
+            <Input placeholder="Note (+5% QoQ, decelerating)" value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
           <Button onClick={addPrint} loading={busy}>Log</Button>
         </div>
       </div>

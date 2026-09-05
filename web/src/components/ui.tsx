@@ -222,13 +222,14 @@ export function Switch({ checked, onChange, disabled }: { checked: boolean; onCh
 }
 
 export function StatCard({ label, value, icon, accent }: { label: string; value: string | number; icon: ReactNode; accent: string }) {
+  // Compact below sm — stat grids show these 2-up on phones.
   return (
-    <Card className="p-5">
-      <div className="flex items-center gap-4">
-        <div className={cn("flex h-11 w-11 items-center justify-center rounded-lg", accent)}>{icon}</div>
+    <Card className="p-4 sm:p-5">
+      <div className="flex items-center gap-3 sm:gap-4">
+        <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg sm:h-11 sm:w-11", accent)}>{icon}</div>
         <div className="min-w-0">
           <p className="text-xs font-medium text-slate-500">{label}</p>
-          <p className="mt-0.5 truncate text-2xl font-semibold text-slate-900">{value}</p>
+          <p className="mt-0.5 truncate text-xl font-semibold text-slate-900 sm:text-2xl">{value}</p>
         </div>
       </div>
     </Card>

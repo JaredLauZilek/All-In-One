@@ -191,14 +191,18 @@ TOP bar: lime logo tile + wordmark · centered white pill-group nav with **ink p
 the active section** (Home / apps / Infrastructure) · `#header-actions` portal slot (fin's
 Refresh button mounts there) · user chip with sign-out. At `lg+` a **floating icon rail**
 (white rounded-full column, sticky) mirrors the sections + sign-out; below `md` the nav
-becomes a scrollable pill row under the bar. The active app's sub-pages render as an
+becomes the same white pill group in a horizontally scrolling row under the bar
+(scrollbar hidden). The active app's sub-pages render as an
 in-content pill tab row beside the big page title. There is **no drawer/sidebar** — the
 old z-order/hamburger gotchas are gone. Everything derives from the `APPS` array: a new
 mini-app = one APPS entry (name/icon/items) + routes in `App.tsx` + a Home tile +
 Infrastructure `SERVICES` entries.
 
 Wide tables still scroll inside their card (`overflow-x-auto` + `min-w-[…]`), never the
-page.
+page — but that's for *read-only* tables (the trade log). Tables with **inputs** must
+reflow instead of scroll on phones (see the fin Settings levels editor: stacked
+per-ticker blocks below `sm`, table from `sm` up). Stat-card grids go `grid-cols-2`
+on phones, never a stack of four full-width cards.
 
 ## Local development
 

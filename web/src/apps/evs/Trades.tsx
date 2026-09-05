@@ -40,7 +40,7 @@ export default function Trades() {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <StatCard label="Plays logged" value={trades?.length ?? 0} accent="bg-indigo-50 text-indigo-600" icon={<NotebookPen className="h-5 w-5" />} />
         <StatCard label="Open" value={open.length} accent="bg-amber-50 text-amber-600" icon={<Target className="h-5 w-5" />} />
         <StatCard label="Win rate" value={winRate === null ? "—" : `${winRate}%`} accent="bg-emerald-50 text-emerald-600" icon={<TrendingUp className="h-5 w-5" />} />

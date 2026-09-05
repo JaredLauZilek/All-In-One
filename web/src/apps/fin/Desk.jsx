@@ -12,7 +12,7 @@ export default function Desk({ snap, log, cats, cfg }) {
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-4">
         <StatCard
           label="Today's verdict"
           value={snap ? VERDICT_LABELS[snap.verdict] ?? snap.verdict : "—"}

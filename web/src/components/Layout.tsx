@@ -182,12 +182,15 @@ export default function Layout({ email }: { email: string }) {
           </div>
         </div>
 
-        <nav className="flex gap-1 overflow-x-auto px-4 pb-3 md:hidden">
-          {SECTIONS.map((s) => (
-            <NavLink key={s.to} to={s.to} end={s.end} className={topPill}>
-              {s.label}
-            </NavLink>
-          ))}
+        {/* same white pill-group as the desktop nav, scrolling as one piece */}
+        <nav className="overflow-x-auto px-4 pb-3 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden md:hidden">
+          <div className="flex w-max gap-1 rounded-full bg-surface p-1.5 shadow-sm">
+            {SECTIONS.map((s) => (
+              <NavLink key={s.to} to={s.to} end={s.end} className={topPill}>
+                {s.label}
+              </NavLink>
+            ))}
+          </div>
         </nav>
       </header>
 
