@@ -5,10 +5,11 @@
 //
 // Add a new mini-app: one entry in APPS (name/icon/items) — the top nav, rail,
 // sub-tabs and titles all derive from it.
+import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Boxes, Home, LogOut, Server, LineChart, CandlestickChart,
-  Gauge, Newspaper, SlidersHorizontal, Crosshair, NotebookPen,
+  Gauge, Newspaper, SlidersHorizontal, Crosshair, NotebookPen, ChevronDown,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { cn } from "./ui";
@@ -55,6 +56,56 @@ const subPill = ({ isActive }: { isActive: boolean }) =>
     isActive ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800",
   );
 
+// Reference-style profile tab: avatar + stacked name/email + chevron, opening
+// a small dropdown. Single-user app, so the display name is simply Jared.
+function ProfileMenu({ email }: { email: string }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", onDown);
+    return () => document.removeEventListener("mousedown", onDown);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        onClick={() => setOpen((o) => !o)}
+        aria-expanded={open}
+        className="flex items-center gap-2.5 rounded-full bg-white py-1.5 pl-1.5 pr-3 shadow-sm transition-colors hover:bg-slate-100/70"
+      >
+        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-sm font-bold uppercase text-accent">
+          {email.slice(0, 1) || "?"}
+        </span>
+        <span className="hidden text-left sm:block">
+          <span className="block text-sm font-bold leading-tight text-slate-900">Jared</span>
+          <span className="block max-w-[16ch] truncate text-[11px] leading-tight text-slate-500">{email}</span>
+        </span>
+        <ChevronDown className={cn("h-4 w-4 text-slate-400 transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div className="absolute right-0 top-full z-40 mt-2 w-60 rounded-2xl bg-white p-1.5 shadow-lg ring-1 ring-slate-200/60">
+          <div className="border-b border-slate-100 px-3 pb-2.5 pt-2 sm:hidden">
+            <p className="text-sm font-bold text-slate-900">Jared</p>
+            <p className="truncate text-xs text-slate-500">{email}</p>
+          </div>
+          <button
+            onClick={() => supabase.auth.signOut()}
+            className="mt-0.5 flex w-full items-center gap-2.5 rounded-xl px-3 py-2.5 text-left text-sm font-semibold text-slate-700 hover:bg-slate-100"
+          >
+            <LogOut className="h-4 w-4 text-slate-400" /> Sign out
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Layout({ email }: { email: string }) {
   const { pathname } = useLocation();
   const app = APPS.find((a) => pathname.startsWith(a.base));
@@ -86,19 +137,7 @@ export default function Layout({ email }: { email: string }) {
           <div className="ml-auto flex items-center gap-2 md:ml-0">
             {/* Sections portal-mount header actions here (the fin Refresh button). */}
             <div id="header-actions" className="flex shrink-0 items-center gap-2" />
-            <div className="flex items-center gap-2 rounded-full bg-white py-1.5 pl-1.5 pr-3 shadow-sm">
-              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-xs font-bold uppercase text-accent">
-                {email.slice(0, 1) || "?"}
-              </span>
-              <span className="hidden max-w-[16ch] truncate text-xs font-medium text-slate-600 xl:block">{email}</span>
-              <button
-                onClick={() => supabase.auth.signOut()}
-                title="Sign out"
-                className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
-              >
-                <LogOut className="h-3.5 w-3.5" />
-              </button>
-            </div>
+            <ProfileMenu email={email} />
           </div>
         </div>
 
