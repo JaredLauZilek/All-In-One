@@ -96,26 +96,96 @@ after changes.
 the **legacy anon JWT** as its Bearer — `fin-daily-signal` is deployed `verify_jwt: true`
 and the publishable key is not a JWT. Don't "simplify" one away.
 
-## UI: the "Finexy" design system (reskinned 2026-09-05, Dribbble reference)
+## UI: the "Finexy" design system (reskinned 2026-09-05)
 
-House style: **warm off-white canvas, white `rounded-3xl` cards, lime accent
-(`bg-accent` + `text-ink`), deep forest feature cards
-(`from-forest-600 to-forest-950`), pill buttons, ink pill nav**. Font is Plus
-Jakarta Sans (Google Fonts link in index.html).
+Jared picked an Onpoint Studio Dribbble reference (their "Finexy"/"Monetra" fintech
+dashboards) and the whole app was restyled to it. This section is the spec — follow it
+for anything new so the suite keeps reading as one product.
 
-**The reskin is mostly TOKEN REMAP** (see `index.css` `@theme`): `slate-*` now
-resolves to a warm neutral scale and `indigo-*` to a deep green family — so KEEP
-using slate/indigo utility names; they ARE the theme. Custom tokens: `accent`,
-`accent-hover`, `ink`, `forest-600/950`. Radius tokens are bumped globally.
+### The one rule that makes everything else work: token remap
 
-Shell (`Layout.tsx`): TOP nav bar with pill section tabs (active = ink pill) +
-user chip; a floating icon rail on the left at `lg+` (sections + sign-out); the
-active app's sub-pages render as an in-content pill row next to the page title;
-mobile gets a scrollable pill row under the bar. There is **no drawer/sidebar**
-anymore — the old z-order/hamburger gotchas are gone. The `#header-actions`
-portal slot lives in the top bar (fin's Refresh button mounts there). Wide
-tables still scroll inside their card (`overflow-x-auto` + `min-w-[…]`).
-`StatusBadge` speaks every tool's vocabulary — same semantic colours.
+The palette lives ONLY in `src/index.css` `@theme`. The pre-reskin codebase was written
+in `slate-*` (neutrals) and `indigo-*` (primary) utilities, and those names were kept and
+**remapped**: `slate-*` now resolves to a warm gray-green scale, `indigo-*` to a deep
+green family. So:
+
+- **Write new code with `slate-*` / `indigo-*` names.** They ARE the theme. `text-slate-500`
+  is muted copy, `bg-slate-50` is the canvas/inset panels, `text-indigo-600` is a link,
+  `ring-indigo-500` is a focus ring.
+- **Never hardcode hex colors or reach for Tailwind's raw cool grays** (`gray-*`,
+  `zinc-*`, `neutral-*`) — they bypass the theme and will look alien.
+- Retheming later = edit `@theme` once; zero component churn.
+
+### Palette
+
+| Token | Value | Use |
+|---|---|---|
+| `slate-50` | `#f4f5f1` | page canvas, inset panels inside cards |
+| `slate-100/200` | warm grays | secondary pills, dividers, table headers |
+| `slate-500/600` | warm mid-grays | secondary text |
+| `ink` (= `slate-900`) | `#171a16` | headings, active nav pills, switches — the "black" |
+| `accent` | `#c9f542` | THE lime: primary buttons, highlights on dark cards |
+| `accent-hover` | `#b9e636` | primary button hover |
+| `forest-600 → forest-950` | `#35573c → #0f1a12` | dark feature-card gradient |
+| `indigo-600` (remapped) | `#4f7d20` | links, "act" accents, focus rings |
+| `emerald / amber / red / orange` | Tailwind defaults | semantics: good/up · watch · bad/down · error |
+
+Rules of thumb: text on `accent` is ALWAYS `text-ink`, never white (contrast). On forest
+gradients use `text-white` for primary copy, `text-white/50`-ish for secondary, `accent`
+for the highlight line, `border-white/10` for dividers. Semantic colours are never
+decorative — emerald means good, red means bad, everywhere.
+
+### Typography
+
+**Plus Jakarta Sans** (Google Fonts `<link>` in `index.html`, weights 400–800; falls back
+to Inter/system). Page titles and hero greetings: `font-extrabold tracking-tight`
+(text-3xl/4xl). Card titles: `text-sm font-bold`. Numbers, tickers, dates, codes:
+`font-mono` — unchanged from the old system.
+
+### Shape
+
+Round is the brand. Radius tokens are bumped globally in `@theme` (xl 1rem, 2xl 1.35rem,
+3xl 1.75rem):
+
+- Cards: `rounded-3xl` (the `Card` primitive does this), minimal border
+  (`border-slate-200/50`) + whisper shadow. No heavy drop shadows anywhere.
+- Everything interactive is a **pill**: buttons, nav tabs, badges, the icon rail —
+  `rounded-full`. Icon tiles: `rounded-2xl`.
+- Form inputs stay `rounded-lg`/`rounded-xl` (pills make multi-field forms look novelty).
+
+### Components (`ui.tsx` — the single copy)
+
+- `Button` variants: `primary` (lime/ink — the ONE main action per view), `secondary`
+  (soft gray pill), `dark` (ink pill, for emphasis without lime), `danger`, `ghost`.
+- `Card`/`CardHeader`, `StatCard`, `StatusBadge` (speaks every tool's vocabulary — stock,
+  verdicts, print directions, PASS/FAIL, open/closed), `Switch` (ink when on), `Modal`,
+  `Input/Select/Textarea`, `Spinner`, `EmptyState`, `DataRow`.
+- **Dark feature card** — the signature surface, reserved for each tool's single most
+  important element (currently the fin verdict). It is bespoke markup, not a primitive:
+
+  ```jsx
+  <div className="rounded-3xl bg-gradient-to-br from-forest-600 to-forest-950 text-white shadow-sm">
+    {/* title text-sm font-bold · subtitle text-white/50 · headline text-accent
+        · list dots bg-accent · dividers border-white/10 */}
+  </div>
+  ```
+
+  Don't multiply these — one dark card per screen keeps it special.
+
+### Shell (`Layout.tsx`)
+
+TOP bar: lime logo tile + wordmark · centered white pill-group nav with **ink pill for
+the active section** (Home / apps / Infrastructure) · `#header-actions` portal slot (fin's
+Refresh button mounts there) · user chip with sign-out. At `lg+` a **floating icon rail**
+(white rounded-full column, sticky) mirrors the sections + sign-out; below `md` the nav
+becomes a scrollable pill row under the bar. The active app's sub-pages render as an
+in-content pill tab row beside the big page title. There is **no drawer/sidebar** — the
+old z-order/hamburger gotchas are gone. Everything derives from the `APPS` array: a new
+mini-app = one APPS entry (name/icon/items) + routes in `App.tsx` + a Home tile +
+Infrastructure `SERVICES` entries.
+
+Wide tables still scroll inside their card (`overflow-x-auto` + `min-w-[…]`), never the
+page.
 
 ## Local development
 
