@@ -1,5 +1,8 @@
 -- ============================================================
 --  Restock Monitor (lzd_) teardown — written 2026-08-29
+--  ✅ APPLIED LIVE 2026-09-05 via MCP execute_sql; verification
+--  queries returned zero rows. Also dropped the trigger helper
+--  lzd_set_updated_at() found during the pre-check (added below).
 --
 --  Removes everything the deleted lazada-monitor app owned in the
 --  shared DRAM Supabase project. DESTRUCTIVE: drops all product /
@@ -36,6 +39,7 @@ drop table if exists public.lzd_notifications;
 drop table if exists public.lzd_settings;
 drop table if exists public.lzd_worker_state;
 drop table if exists public.lzd_products;
+drop function if exists public.lzd_set_updated_at(); -- trigger helper; after tables
 
 -- 3. Vault secrets
 delete from vault.secrets where name like 'LZD_%';
