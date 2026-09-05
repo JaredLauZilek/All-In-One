@@ -81,28 +81,32 @@ function VerdictCard({ snap }) {
       </Card>
     );
   }
+  // The one dark "feature card" of the desk (Finexy-style forest gradient) —
+  // the verdict is the product, so it gets the signature surface.
   return (
-    <Card>
-      <CardHeader
-        title="Today's verdict"
-        subtitle="One verdict a day — the system defaults to Hold and only escalates"
-        action={<StatusBadge status={snap.verdict} />}
-      />
-      <div className="px-5 py-4">
-        <p className="text-sm font-medium text-slate-800">{snap.headline}</p>
-        <p className="mt-1 text-xs text-slate-400">Snapshot {snap.snapshot_date}</p>
+    <div className="rounded-3xl bg-gradient-to-br from-forest-600 to-forest-950 text-white shadow-sm">
+      <div className="flex items-start justify-between px-6 pt-5">
+        <div>
+          <h3 className="text-sm font-bold">Today's verdict</h3>
+          <p className="mt-0.5 text-xs text-white/50">One verdict a day — defaults to Hold, only escalates</p>
+        </div>
+        <StatusBadge status={snap.verdict} />
+      </div>
+      <div className="px-6 py-5">
+        <p className="text-lg font-bold leading-snug text-accent">{snap.headline}</p>
+        <p className="mt-1 text-xs text-white/40">Snapshot {snap.snapshot_date}</p>
         {snap.reasons?.length > 0 && (
-          <ul className="mt-4 space-y-2 border-t border-slate-100 pt-4">
+          <ul className="mt-4 space-y-2 border-t border-white/10 pt-4">
             {snap.reasons.map((r, i) => (
-              <li key={i} className="flex gap-2.5 text-sm text-slate-600">
-                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-slate-300" />
+              <li key={i} className="flex gap-2.5 text-sm text-white/80">
+                <span className="mt-1.5 h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
                 {r}
               </li>
             ))}
           </ul>
         )}
       </div>
-    </Card>
+    </div>
   );
 }
 

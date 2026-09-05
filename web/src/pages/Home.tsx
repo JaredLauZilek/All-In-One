@@ -26,11 +26,14 @@ function useHomeStatus() {
 export default function Home() {
   const { data } = useHomeStatus();
 
+  const hour = new Date().getHours();
+  const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
+
   return (
     <div className="mx-auto max-w-4xl space-y-8">
       <div>
-        <h2 className="text-2xl font-semibold text-slate-900">Your tools</h2>
-        <p className="mt-1 text-sm text-slate-500">
+        <h2 className="text-4xl font-extrabold tracking-tight text-slate-900">{greeting}, Jared</h2>
+        <p className="mt-2 text-[15px] text-slate-500">
           Everything lives in this one app — one URL, one deploy, one place to check.
         </p>
       </div>
@@ -38,8 +41,8 @@ export default function Home() {
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
         <AppTile
           to="/fin"
-          icon={<LineChart className="h-6 w-6 text-white" />}
-          iconBg="bg-indigo-500"
+          icon={<LineChart className="h-6 w-6 text-accent" />}
+          iconBg="bg-gradient-to-br from-forest-600 to-forest-950"
           name="Financial Desk"
           description="Memory-cycle signal for MU, SNDK, WDC & co. One verdict a day; defaults to Hold."
           status={
@@ -55,8 +58,8 @@ export default function Home() {
         />
         <AppTile
           to="/evs"
-          icon={<CandlestickChart className="h-6 w-6 text-white" />}
-          iconBg="bg-amber-500"
+          icon={<CandlestickChart className="h-6 w-6 text-ink" />}
+          iconBg="bg-accent"
           name="Earnings Vol Scanner"
           description="Checks a ticker's upcoming earnings against the three-filter calendar-spread strategy."
           status={
@@ -73,7 +76,7 @@ export default function Home() {
         <AppTile
           to="/infra"
           icon={<Server className="h-6 w-6 text-white" />}
-          iconBg="bg-slate-700"
+          iconBg="bg-ink"
           name="Infrastructure"
           description="Every service behind these tools — subscriptions, deploys, dashboards, costs."
           status={<span className="text-xs text-slate-400">Supabase · Vercel · Finnhub · GitHub</span>}
@@ -95,7 +98,7 @@ function AppTile({ to, icon, iconBg, name, description, status }: {
     <Link to={to} className="group block">
       <Card className="flex h-full flex-col p-5 transition-shadow hover:shadow-md">
         <div className="flex items-start justify-between">
-          <div className={cn("flex h-12 w-12 items-center justify-center rounded-xl shadow-sm", iconBg)}>{icon}</div>
+          <div className={cn("flex h-12 w-12 items-center justify-center rounded-2xl shadow-sm", iconBg)}>{icon}</div>
           <ArrowRight className="h-4 w-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-indigo-500" />
         </div>
         <h3 className="mt-4 text-base font-semibold text-slate-900 group-hover:text-indigo-600">{name}</h3>

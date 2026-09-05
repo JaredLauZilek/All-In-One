@@ -1,7 +1,58 @@
 @import "tailwindcss";
 
+/* ============================================================
+   All-In-One theme — "Finexy" style (Onpoint Studio reference):
+   warm off-white canvas, white cards with big radii, lime
+   accent with ink text, deep forest-green feature surfaces.
+
+   The reskin works mostly by TOKEN REMAP: the codebase's slate-*
+   utilities now resolve to a warm neutral scale, and indigo-*
+   (the old primary) resolves to a green family — so every page
+   inherits the palette without class-name churn. Keep using
+   slate/indigo names in new code; they ARE the theme.
+   ============================================================ */
+
 @theme {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
+
+  /* Signature colors (generate bg-accent / text-ink / etc.) */
+  --color-accent: #c9f542;        /* lime — primary actions, highlights */
+  --color-accent-hover: #b9e636;
+  --color-ink: #171a16;           /* near-black with a green undertone */
+  --color-forest-600: #35573c;    /* dark feature-card gradient: from */
+  --color-forest-950: #0f1a12;    /* dark feature-card gradient: to   */
+
+  /* slate-* → warm gray (was cool blue-gray) */
+  --color-slate-50: #f4f5f1;
+  --color-slate-100: #ebede6;
+  --color-slate-200: #dde0d6;
+  --color-slate-300: #c6cabd;
+  --color-slate-400: #9ba093;
+  --color-slate-500: #757a6d;
+  --color-slate-600: #575c50;
+  --color-slate-700: #42463c;
+  --color-slate-800: #2a2d26;
+  --color-slate-900: #171a16;
+  --color-slate-950: #0f110d;
+
+  /* indigo-* → deep green (links, focus rings, "act" accents) */
+  --color-indigo-50: #f1f8e6;
+  --color-indigo-100: #e2f1cb;
+  --color-indigo-200: #c8e69c;
+  --color-indigo-300: #a8d465;
+  --color-indigo-400: #86bc39;
+  --color-indigo-500: #679f26;
+  --color-indigo-600: #4f7d20;
+  --color-indigo-700: #3e611d;
+  --color-indigo-800: #324c1c;
+  --color-indigo-900: #2a3f1b;
+  --color-indigo-950: #16230c;
+
+  /* chunkier corners across the board */
+  --radius-lg: 0.75rem;
+  --radius-xl: 1rem;
+  --radius-2xl: 1.35rem;
+  --radius-3xl: 1.75rem;
 }
 
 body {

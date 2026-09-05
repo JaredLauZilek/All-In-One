@@ -33,7 +33,7 @@ web/
 └── src/
     ├── App.tsx        # auth gate → Login; router; react-query provider
     ├── components/
-    │   ├── Layout.tsx # THE sidebar shell (grouped nav per tool) — single copy now
+    │   ├── Layout.tsx # THE shell: top pill nav + floating icon rail + sub-tab pills
     │   └── ui.tsx     # design-system primitives — single copy now
     ├── lib/
     │   ├── supabase.ts   # ONE client (publishable key + auth) + refreshNow()
@@ -52,9 +52,9 @@ web/
   (a slot div in Layout's header). The evs pages self-fetch with react-query instead —
   the two data patterns are both intentional (polling-friendly vs once-a-day data).
 - **Routing**: `/fin`, `/fin/news`, `/fin/settings`, `/evs`, `/evs/trades`,
-  `/evs/settings`, `/infra`. Titles live in `Layout.tsx` `TITLES`;
-  nav in `NAV_GROUPS`. A new tool = a folder under `apps/`, routes in `App.tsx`, a nav
-  group in Layout, a tile in `Home.tsx`, and (if it uses services) entries in
+  `/evs/settings`, `/infra`. Nav, titles and sub-tabs all derive from `APPS` in
+  `Layout.tsx`. A new tool = a folder under `apps/`, routes in `App.tsx`, an APPS
+  entry, a tile in `Home.tsx`, and (if it uses services) entries in
   `Infrastructure.tsx` `SERVICES`.
 
 ## Auth — the whole app is behind one passwordless login
@@ -96,18 +96,26 @@ after changes.
 the **legacy anon JWT** as its Bearer — `fin-daily-signal` is deployed `verify_jwt: true`
 and the publishable key is not a JWT. Don't "simplify" one away.
 
-## UI: one design system, one copy
+## UI: the "Finexy" design system (reskinned 2026-09-05, Dribbble reference)
 
-House style unchanged: `bg-slate-50` page, white `rounded-xl` cards + `border-slate-200`,
-dark `slate-900` sidebar, indigo primary, stat-card rows, `divide-y` lists. `ui.tsx` and
-`Layout.tsx` are now the **single copies** (the old mirror-by-hand pact between the two
-apps is dead — edit here, everyone gets it). `StatusBadge` deliberately speaks every
-tool's vocabulary (verdicts, print directions, scanner pass/fail) — same semantic colours.
+House style: **warm off-white canvas, white `rounded-3xl` cards, lime accent
+(`bg-accent` + `text-ink`), deep forest feature cards
+(`from-forest-600 to-forest-950`), pill buttons, ink pill nav**. Font is Plus
+Jakarta Sans (Google Fonts link in index.html).
 
-Shell gotchas (unchanged, still load-bearing): header stays **`z-20`** (aside 40 >
-backdrop 30 > header 20); NavLink needs `onClick={() => setOpen(false)}` **and** the
-`pathname` effect; it's `lg:ml-60`, not `ml-60`. Wide tables scroll inside their card
-(`overflow-x-auto` + `min-w-[…]`).
+**The reskin is mostly TOKEN REMAP** (see `index.css` `@theme`): `slate-*` now
+resolves to a warm neutral scale and `indigo-*` to a deep green family — so KEEP
+using slate/indigo utility names; they ARE the theme. Custom tokens: `accent`,
+`accent-hover`, `ink`, `forest-600/950`. Radius tokens are bumped globally.
+
+Shell (`Layout.tsx`): TOP nav bar with pill section tabs (active = ink pill) +
+user chip; a floating icon rail on the left at `lg+` (sections + sign-out); the
+active app's sub-pages render as an in-content pill row next to the page title;
+mobile gets a scrollable pill row under the bar. There is **no drawer/sidebar**
+anymore — the old z-order/hamburger gotchas are gone. The `#header-actions`
+portal slot lives in the top bar (fin's Refresh button mounts there). Wide
+tables still scroll inside their card (`overflow-x-auto` + `min-w-[…]`).
+`StatusBadge` speaks every tool's vocabulary — same semantic colours.
 
 ## Local development
 

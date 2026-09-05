@@ -1,22 +1,18 @@
-// The one sidebar shell for all of All-In-One. Each mini-app is a
-// click-to-reveal group (accordion) so the nav stays tidy as more apps join —
-// add a new app to APPS and its pages render inside this same chrome (light
-// SaaS: slate-50 page, white cards, dark slate-900 sidebar, indigo primary).
+// The one shell for all of All-In-One, styled after the "Finexy" reference:
+// warm canvas, TOP nav with pill tabs (active = ink pill), a floating icon
+// rail on the left (lg+) with the same sections + sign-out, and in-content
+// pill tabs for the active mini-app's sub-pages. No drawer/sidebar anymore.
 //
-// Responsive: below lg the sidebar is an off-canvas drawer behind a hamburger;
-// at lg+ it is static and the hamburger disappears.
-import { useEffect, useState } from "react";
+// Add a new mini-app: one entry in APPS (name/icon/items) — the top nav, rail,
+// sub-tabs and titles all derive from it.
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
-  Boxes, Home, LogOut, Menu, Server, ChevronDown, LineChart, CandlestickChart,
+  Boxes, Home, LogOut, Server, LineChart, CandlestickChart,
   Gauge, Newspaper, SlidersHorizontal, Crosshair, NotebookPen,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { cn } from "./ui";
 
-// One entry per mini-app. `base` doubles as the group's identity for the
-// open/closed state and as the prefix that auto-expands the group when a route
-// inside it is active.
 const APPS = [
   {
     base: "/fin",
@@ -40,176 +36,127 @@ const APPS = [
   },
 ];
 
-const TITLES: Record<string, string> = {
-  "/": "Home",
-  "/fin": "Financial Desk",
-  "/fin/news": "Financial Desk · News",
-  "/fin/settings": "Financial Desk · Settings",
-  "/evs": "Earnings Vol Scanner",
-  "/evs/trades": "Earnings Vol · Trades",
-  "/evs/settings": "Earnings Vol · Settings",
-  "/infra": "Infrastructure",
-};
+// Top-level sections: Home + each app + Infrastructure.
+const SECTIONS = [
+  { to: "/", label: "Home", icon: Home, end: true },
+  ...APPS.map((a) => ({ to: a.base, label: a.name, icon: a.icon, end: false })),
+  { to: "/infra", label: "Infrastructure", icon: Server, end: true },
+];
 
-const OPEN_GROUPS_KEY = "aio:nav-open";
-
-function loadOpenGroups(): Record<string, boolean> {
-  try {
-    return JSON.parse(localStorage.getItem(OPEN_GROUPS_KEY) ?? "{}");
-  } catch {
-    return {};
-  }
-}
-
-const linkClass = ({ isActive }: { isActive: boolean }) =>
+const topPill = ({ isActive }: { isActive: boolean }) =>
   cn(
-    "flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-    isActive ? "bg-slate-800 text-white" : "text-slate-400 hover:bg-slate-800/60 hover:text-slate-200",
+    "whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+    isActive ? "bg-ink text-white" : "text-slate-600 hover:bg-slate-100",
+  );
+
+const subPill = ({ isActive }: { isActive: boolean }) =>
+  cn(
+    "inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-4 py-2 text-sm font-semibold transition-colors",
+    isActive ? "bg-white text-slate-900 shadow-sm" : "text-slate-500 hover:text-slate-800",
   );
 
 export default function Layout({ email }: { email: string }) {
   const { pathname } = useLocation();
-  const [open, setOpen] = useState(false);
-  // Manual open/closed overrides per app group, persisted so the nav comes
-  // back the way you left it. A group with no override auto-opens while a
-  // route inside it is active.
-  const [openGroups, setOpenGroups] = useState<Record<string, boolean>>(loadOpenGroups);
-
-  // Close the drawer on navigation — covers browser back/forward and
-  // programmatic nav. NavLink also closes onClick, because tapping the route
-  // you're ALREADY on doesn't change pathname, so this effect alone would
-  // leave the drawer open.
-  useEffect(() => { setOpen(false); }, [pathname]);
-
-  // Entering an app (Home tile, deep link, back/forward) always reveals its
-  // tabs, even if the group was manually collapsed earlier.
-  useEffect(() => {
-    const app = APPS.find((a) => pathname.startsWith(a.base));
-    if (app) {
-      setOpenGroups((g) => {
-        if (g[app.base] === false) {
-          const next = { ...g, [app.base]: true };
-          try { localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-          return next;
-        }
-        return g;
-      });
-    }
-  }, [pathname]);
-
-  function toggleGroup(base: string, current: boolean) {
-    setOpenGroups((g) => {
-      const next = { ...g, [base]: !current };
-      try { localStorage.setItem(OPEN_GROUPS_KEY, JSON.stringify(next)); } catch { /* ignore */ }
-      return next;
-    });
-  }
+  const app = APPS.find((a) => pathname.startsWith(a.base));
+  const title = app ? app.name : pathname === "/infra" ? "Infrastructure" : null;
 
   return (
-    <div className="flex min-h-screen">
-      {open && (
-        <div
-          className="fixed inset-0 z-30 bg-slate-900/50 backdrop-blur-sm lg:hidden"
-          onClick={() => setOpen(false)}
-          aria-hidden="true"
-        />
-      )}
-
-      <aside
-        className={cn(
-          "fixed inset-y-0 left-0 z-40 flex w-60 flex-col bg-slate-900 transition-transform duration-200 lg:translate-x-0",
-          open ? "translate-x-0" : "-translate-x-full",
-        )}
-      >
-        <NavLink to="/" className="flex items-center gap-2.5 px-5 py-5" onClick={() => setOpen(false)}>
-          <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-indigo-500">
-            <Boxes className="h-5 w-5 text-white" />
-          </div>
-          <div>
-            <p className="text-sm font-semibold text-white">All-In-One</p>
-            <p className="text-[11px] text-slate-400">Personal tools</p>
-          </div>
-        </NavLink>
-
-        <nav className="mt-1 flex-1 space-y-1 overflow-y-auto px-3 pb-4">
-          <NavLink to="/" end onClick={() => setOpen(false)} className={linkClass}>
-            <Home className="h-4.5 w-4.5" />
-            Home
+    <div className="min-h-screen">
+      {/* ---------- top bar ---------- */}
+      <header className="sticky top-0 z-30 bg-slate-50/85 backdrop-blur">
+        <div className="mx-auto flex max-w-[1440px] items-center gap-3 px-4 py-3.5 sm:px-8">
+          <NavLink to="/" className="flex items-center gap-2.5">
+            <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent shadow-sm">
+              <Boxes className="h-5 w-5 text-ink" />
+            </span>
+            <span className="hidden text-[17px] font-extrabold tracking-tight text-slate-900 sm:block">
+              All-In-One
+            </span>
           </NavLink>
 
-          {APPS.map((app) => {
-            const active = pathname.startsWith(app.base);
-            const expanded = openGroups[app.base] ?? active;
-            const AppIcon = app.icon;
-            return (
-              <div key={app.base}>
-                <button
-                  type="button"
-                  onClick={() => toggleGroup(app.base, expanded)}
-                  aria-expanded={expanded}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors",
-                    // The header lights up when its app is active but collapsed,
-                    // so the current app stays findable in a folded nav.
-                    active && !expanded ? "bg-slate-800/70 text-white" : "text-slate-300 hover:bg-slate-800/60 hover:text-white",
-                  )}
-                >
-                  <AppIcon className="h-4.5 w-4.5" />
-                  {app.name}
-                  <ChevronDown
-                    className={cn("ml-auto h-4 w-4 text-slate-500 transition-transform", expanded ? "rotate-0" : "-rotate-90")}
-                  />
-                </button>
-                {expanded && (
-                  <div className="mt-1 space-y-1 border-l border-slate-800 pl-3 ml-5 mb-1">
-                    {app.items.map(({ to, label, icon: Icon, end }) => (
-                      <NavLink key={to} to={to} end={end} onClick={() => setOpen(false)} className={linkClass}>
-                        <Icon className="h-4 w-4" />
-                        {label}
-                      </NavLink>
-                    ))}
-                  </div>
-                )}
-              </div>
-            );
-          })}
+          {/* section pills — centered on md+, scrollable row below the bar on mobile */}
+          <nav className="mx-auto hidden items-center gap-1 rounded-full bg-white p-1.5 shadow-sm md:flex">
+            {SECTIONS.map((s) => (
+              <NavLink key={s.to} to={s.to} end={s.end} className={topPill}>
+                {s.label}
+              </NavLink>
+            ))}
+          </nav>
 
-          <NavLink to="/infra" onClick={() => setOpen(false)} className={linkClass}>
-            <Server className="h-4.5 w-4.5" />
-            Infrastructure
-          </NavLink>
-        </nav>
-
-        <div className="border-t border-slate-800 p-4">
-          <p className="truncate text-xs text-slate-400">{email}</p>
-          <button
-            onClick={() => supabase.auth.signOut()}
-            className="mt-2 flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-300"
-          >
-            <LogOut className="h-3.5 w-3.5" /> Sign out
-          </button>
+          <div className="ml-auto flex items-center gap-2 md:ml-0">
+            {/* Sections portal-mount header actions here (the fin Refresh button). */}
+            <div id="header-actions" className="flex shrink-0 items-center gap-2" />
+            <div className="flex items-center gap-2 rounded-full bg-white py-1.5 pl-1.5 pr-3 shadow-sm">
+              <span className="flex h-7 w-7 items-center justify-center rounded-full bg-ink text-xs font-bold uppercase text-accent">
+                {email.slice(0, 1) || "?"}
+              </span>
+              <span className="hidden max-w-[16ch] truncate text-xs font-medium text-slate-600 xl:block">{email}</span>
+              <button
+                onClick={() => supabase.auth.signOut()}
+                title="Sign out"
+                className="rounded-full p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              >
+                <LogOut className="h-3.5 w-3.5" />
+              </button>
+            </div>
+          </div>
         </div>
-      </aside>
 
-      <div className="flex flex-1 flex-col lg:ml-60">
-        {/* z-20, NOT z-30: the backdrop is z-30 and both sit in the root stacking
-            context, so a tie would let this header paint over the backdrop and
-            stay clickable. Order must be aside 40 > backdrop 30 > header 20. */}
-        <header className="sticky top-0 z-20 flex items-center gap-3 border-b border-slate-200 bg-white/80 px-4 py-4 backdrop-blur sm:px-8">
-          <button
-            type="button"
-            onClick={() => setOpen(true)}
-            aria-label="Open navigation"
-            className="-ml-1 rounded-lg p-2 text-slate-600 hover:bg-slate-100 lg:hidden"
-          >
-            <Menu className="h-5 w-5" />
-          </button>
-          <h1 className="truncate text-lg font-semibold text-slate-900">{TITLES[pathname] ?? "All-In-One"}</h1>
-          {/* Sections can portal-mount header actions here (the fin Refresh button). */}
-          <div id="header-actions" className="ml-auto flex shrink-0 items-center gap-2" />
-        </header>
+        <nav className="flex gap-1 overflow-x-auto px-4 pb-3 md:hidden">
+          {SECTIONS.map((s) => (
+            <NavLink key={s.to} to={s.to} end={s.end} className={topPill}>
+              {s.label}
+            </NavLink>
+          ))}
+        </nav>
+      </header>
 
-        <main className="flex-1 p-4 sm:p-8">
+      {/* ---------- body: floating rail + content ---------- */}
+      <div className="mx-auto flex max-w-[1440px] items-start gap-6 px-4 pb-12 pt-4 sm:px-8">
+        <aside className="sticky top-24 hidden shrink-0 lg:block">
+          <div className="flex flex-col items-center gap-1.5 rounded-full bg-white p-2 shadow-sm">
+            {SECTIONS.map(({ to, label, icon: Icon, end }) => (
+              <NavLink
+                key={to}
+                to={to}
+                end={end}
+                title={label}
+                className={({ isActive }) =>
+                  cn(
+                    "flex h-11 w-11 items-center justify-center rounded-full transition-colors",
+                    isActive ? "bg-ink text-white" : "text-slate-500 hover:bg-slate-100 hover:text-slate-800",
+                  )
+                }
+              >
+                <Icon className="h-5 w-5" />
+              </NavLink>
+            ))}
+            <div className="my-1 h-px w-6 bg-slate-200" />
+            <button
+              onClick={() => supabase.auth.signOut()}
+              title="Sign out"
+              className="flex h-11 w-11 items-center justify-center rounded-full text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            >
+              <LogOut className="h-5 w-5" />
+            </button>
+          </div>
+        </aside>
+
+        <main className="min-w-0 flex-1">
+          {title && (
+            <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+              <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">{title}</h1>
+              {app && (
+                <div className="flex gap-1 rounded-full bg-slate-100 p-1">
+                  {app.items.map(({ to, label, end }) => (
+                    <NavLink key={to} to={to} end={end} className={subPill}>
+                      {label}
+                    </NavLink>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           <Outlet />
         </main>
       </div>

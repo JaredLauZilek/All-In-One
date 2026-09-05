@@ -68,10 +68,10 @@ export default function Login() {
     <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
       <div className="w-full max-w-sm">
         <div className="mb-6 flex flex-col items-center">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-indigo-600 shadow-lg shadow-indigo-600/30">
-            <Boxes className="h-6 w-6 text-white" />
+          <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent shadow-lg shadow-accent/40">
+            <Boxes className="h-6 w-6 text-ink" />
           </div>
-          <h1 className="mt-4 text-xl font-semibold text-slate-900">All-In-One</h1>
+          <h1 className="mt-4 text-xl font-extrabold tracking-tight text-slate-900">All-In-One</h1>
           <p className="mt-1 text-sm text-slate-500">Your personal tools, one place</p>
         </div>
         <Card className="p-6">

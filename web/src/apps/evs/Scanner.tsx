@@ -95,8 +95,8 @@ export default function Scanner() {
           <Input
             value={ticker}
             onChange={(e) => setTicker(e.target.value.toUpperCase())}
-            placeholder="Ticker with upcoming earnings — e.g. NVDA"
-            className="font-mono uppercase sm:max-w-xs"
+            placeholder="Ticker — e.g. NVDA"
+            className="font-mono sm:max-w-xs"
             autoFocus
           />
           <Button type="submit" loading={scan.isPending} disabled={!ticker.trim()}>
