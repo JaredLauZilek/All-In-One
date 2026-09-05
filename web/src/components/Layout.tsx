@@ -110,7 +110,8 @@ function ProfileMenu({ email, dark, setTheme }: { email: string; dark: boolean; 
         aria-expanded={open}
         className="flex items-center gap-2.5 rounded-full bg-surface py-1.5 pl-1.5 pr-3 shadow-sm transition-colors hover:bg-slate-100/70"
       >
-        <span className="flex h-8 w-8 items-center justify-center rounded-full bg-ink text-sm font-bold uppercase text-accent">
+        {/* h-9 keeps the chip exactly as tall as the nav pill group (36 + 2×6 padding = 48px) */}
+        <span className="flex h-9 w-9 items-center justify-center rounded-full bg-ink text-sm font-bold uppercase text-accent">
           {email.slice(0, 1) || "?"}
         </span>
         <span className="hidden text-left sm:block">
