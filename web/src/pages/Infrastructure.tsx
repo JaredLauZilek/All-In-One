@@ -3,7 +3,7 @@
 // can tell us) live health. To register a future service, add an entry to
 // SERVICES below; `live` keys map to the health widgets rendered per card.
 import { useQuery } from "@tanstack/react-query";
-import { Database, Triangle, LineChart, Github, ExternalLink, Wallet } from "lucide-react";
+import { Database, Triangle, LineChart, Github, ExternalLink, Wallet, Activity, Dumbbell, Send, Sparkles, CalendarDays } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { Card, CardHeader, DataRow, cn } from "../components/ui";
 
@@ -27,7 +27,7 @@ const SERVICES: Service[] = [
     name: "Supabase — project “DRAM”",
     icon: Database,
     iconBg: "bg-emerald-100 text-emerald-600",
-    role: "The shared backend: Postgres (fin_* + evs_* tables), auth, edge functions (fin-daily-signal, evs-scan) and the daily pg_cron job.",
+    role: "The shared backend: Postgres (fin_*, evs_*, tr_* tables), auth, edge functions (fin-daily-signal, evs-scan, tr-*) and the daily pg_cron job.",
     plan: "Free tier · org “Personal Tools” · ap-northeast-2 (Seoul)",
     cost: "$0/mo",
     links: [
@@ -56,6 +56,56 @@ const SERVICES: Service[] = [
     plan: "Free tier · US symbols only",
     cost: "$0/mo",
     links: [{ label: "Finnhub dashboard", href: "https://finnhub.io/dashboard" }],
+  },
+  {
+    key: "strava",
+    name: "Strava — activity feed",
+    icon: Activity,
+    iconBg: "bg-orange-50 text-orange-500",
+    role: "OAuth API feeding the Training app's runs/rides/swims (Garmin → Strava → tr-sync). Tokens live server-side in tr_tokens.",
+    plan: "Free API app · connect/disconnect in Training → Settings",
+    cost: "$0/mo",
+    links: [{ label: "Strava API settings", href: "https://www.strava.com/settings/api" }],
+  },
+  {
+    key: "hevy",
+    name: "Hevy — lift log",
+    icon: Dumbbell,
+    iconBg: "bg-indigo-100 text-indigo-600",
+    role: "Strength workouts with full set/rep detail for the Training app. The API key (requires Hevy Pro) is saved in Training → Settings.",
+    plan: "Hevy Pro (existing subscription unlocks the API)",
+    cost: "—",
+    links: [{ label: "Hevy developer settings", href: "https://hevy.com/settings?developer" }],
+  },
+  {
+    key: "telegram",
+    name: "Telegram — training bot",
+    icon: Send,
+    iconBg: "bg-slate-200 text-slate-700",
+    role: "The Training app's chat interface (tr-telegram-webhook edge fn): /today, /week, /sync, plus Claude-powered plan changes mid-week.",
+    plan: "Free · bot via @BotFather",
+    cost: "$0/mo",
+    links: [{ label: "BotFather", href: "https://t.me/botfather" }],
+  },
+  {
+    key: "anthropic",
+    name: "Anthropic API — Claude",
+    icon: Sparkles,
+    iconBg: "bg-amber-50 text-amber-600",
+    role: "Powers the Telegram bot's conversation and the weekly-plan fine-tuning pass in tr-plan-week. Key lives as an edge-function secret.",
+    plan: "Pay-per-use · cents per chat / plan generation",
+    cost: "~$0–2/mo",
+    links: [{ label: "Anthropic console", href: "https://console.anthropic.com" }],
+  },
+  {
+    key: "gcal",
+    name: "Google Calendar — schedule",
+    icon: CalendarDays,
+    iconBg: "bg-emerald-100 text-emerald-600",
+    role: "Planned training sessions are written to your calendar by tr-plan-week (and moved/removed by the bot). Server-side OAuth refresh token.",
+    plan: "Free · Google Cloud OAuth app (internal)",
+    cost: "$0/mo",
+    links: [{ label: "Google Cloud console", href: "https://console.cloud.google.com/apis/credentials" }],
   },
   {
     key: "github",
@@ -98,7 +148,7 @@ export default function Infrastructure() {
           </div>
           {/* full-width line on phones; right-aligned aside on sm+ */}
           <p className="basis-full text-xs text-slate-400 sm:ml-auto sm:basis-auto sm:max-w-xs sm:text-right">
-            Everything rides free tiers since the Fly.io worker was retired with the Restock Monitor (2026-08-29).
+            Fixed costs are all free tiers. Only variable spend: pennies of Anthropic API usage for the training bot (Hevy Pro is an existing subscription).
           </p>
         </div>
       </Card>

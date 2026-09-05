@@ -8,8 +8,9 @@
 import { useEffect, useRef, useState } from "react";
 import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
-  Boxes, Home, LogOut, Server, LineChart, CandlestickChart,
+  Boxes, Home, LogOut, Server, LineChart, CandlestickChart, Dumbbell,
   Gauge, Newspaper, SlidersHorizontal, Crosshair, NotebookPen, ChevronDown, Sun, Moon,
+  CalendarDays, Trophy,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { cn } from "./ui";
@@ -33,6 +34,16 @@ const APPS = [
       { to: "/evs", label: "Scanner", icon: Crosshair, end: true },
       { to: "/evs/trades", label: "Trades", icon: NotebookPen },
       { to: "/evs/settings", label: "Settings", icon: SlidersHorizontal },
+    ],
+  },
+  {
+    base: "/training",
+    name: "Training",
+    icon: Dumbbell,
+    items: [
+      { to: "/training", label: "Week", icon: CalendarDays, end: true },
+      { to: "/training/races", label: "Races", icon: Trophy },
+      { to: "/training/settings", label: "Settings", icon: SlidersHorizontal },
     ],
   },
 ];

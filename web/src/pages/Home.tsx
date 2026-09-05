@@ -3,7 +3,7 @@
 // anything needs attention without opening the tool.
 import { Link } from "react-router-dom";
 import { useQuery } from "@tanstack/react-query";
-import { LineChart, Server, ArrowRight, CandlestickChart } from "lucide-react";
+import { LineChart, Server, ArrowRight, CandlestickChart, Dumbbell } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { Card, StatusBadge, cn } from "../components/ui";
 
@@ -11,13 +11,16 @@ function useHomeStatus() {
   return useQuery({
     queryKey: ["home-status"],
     queryFn: async () => {
-      const [snap, evs] = await Promise.all([
+      const [snap, evs, race] = await Promise.all([
         supabase.from("fin_snapshots").select("snapshot_date, verdict").order("snapshot_date", { ascending: false }).limit(1).maybeSingle(),
         supabase.from("evs_trades").select("status"),
+        supabase.from("tr_races").select("name, race_date").eq("status", "upcoming")
+          .order("race_date", { ascending: true, nullsFirst: false }).limit(1).maybeSingle(),
       ]);
       return {
         snap: snap.data as { snapshot_date: string; verdict: string } | null,
         evsTrades: (evs.data ?? []) as { status: string }[],
+        race: race.data as { name: string; race_date: string | null } | null,
       };
     },
   });
@@ -70,6 +73,25 @@ export default function Home() {
               </span>
             ) : (
               <span className="text-xs text-slate-400">Loading…</span>
+            )
+          }
+        />
+        <AppTile
+          to="/training"
+          icon={<Dumbbell className="h-6 w-6 text-white" />}
+          iconBg="bg-indigo-600"
+          name="Training"
+          description="Hyrox + endurance training hub — weekly plans, Strava/Hevy sync, Telegram coach."
+          status={
+            data?.race ? (
+              <span className="text-xs text-slate-400">
+                {data.race.name}
+                {data.race.race_date
+                  ? ` in ${Math.max(0, Math.ceil((new Date(data.race.race_date + "T00:00:00").getTime() - Date.now()) / 86400000))} days`
+                  : " — date TBC"}
+              </span>
+            ) : (
+              <span className="text-xs text-slate-400">No race on the calendar</span>
             )
           }
         />

@@ -15,6 +15,10 @@ the two previously separate frontends on 2026-08-17:
   `docs/lzd-teardown.sql`)
 - **Earnings Vol Scanner** (`/evs`) — added 2026-08-26; backend in `evs-scanner/`
   (edge fn `evs-scan` does all the math — see that folder's CLAUDE.md)
+- **Training** (`/training`) — added 2026-09-05; Hyrox/endurance hub: weekly plan
+  generation, Strava+Hevy sync, Google Calendar push, Telegram bot. Backend in
+  `training/` (edge fns tr-connect / tr-sync / tr-plan-week / tr-telegram-webhook —
+  see that folder's CLAUDE.md before touching anything tr_)
 
 plus two pages of its own: the **Home launcher** (`/`) and **Infrastructure** (`/infra`),
 which lists every external service (Supabase, Vercel, Finnhub, GitHub)
@@ -41,7 +45,8 @@ web/
     ├── pages/         Home.tsx (launcher) · Infrastructure.tsx (ops hub) · Login.tsx
     └── apps/
         ├── fin/       FinShell.tsx + Desk/News/Settings (.jsx, ported as-is)
-        └── evs/       Scanner/Trades/Settings (.tsx) + lib.ts
+        ├── evs/       Scanner/Trades/Settings (.tsx) + lib.ts
+        └── training/  Dashboard/Races/Settings (.tsx) + lib.ts
 ```
 
 - **`apps/fin/*.jsx` are plain JSX** (ported verbatim from the old app; `allowJs` is on,
@@ -52,7 +57,8 @@ web/
   (a slot div in Layout's header). The evs pages self-fetch with react-query instead —
   the two data patterns are both intentional (polling-friendly vs once-a-day data).
 - **Routing**: `/fin`, `/fin/news`, `/fin/settings`, `/evs`, `/evs/trades`,
-  `/evs/settings`, `/infra`. Nav, titles and sub-tabs all derive from `APPS` in
+  `/evs/settings`, `/training`, `/training/races`, `/training/settings`, `/infra`.
+  Nav, titles and sub-tabs all derive from `APPS` in
   `Layout.tsx`. A new tool = a folder under `apps/`, routes in `App.tsx`, an APPS
   entry, a tile in `Home.tsx`, and (if it uses services) entries in
   `Infrastructure.tsx` `SERVICES`.

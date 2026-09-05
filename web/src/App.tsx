@@ -14,6 +14,9 @@ import FinSettings from "./apps/fin/Settings";
 import EvsScanner from "./apps/evs/Scanner";
 import EvsTrades from "./apps/evs/Trades";
 import EvsSettings from "./apps/evs/Settings";
+import TrainingDashboard from "./apps/training/Dashboard";
+import TrainingRaces from "./apps/training/Races";
+import TrainingSettings from "./apps/training/Settings";
 import { Spinner } from "./components/ui";
 
 const queryClient = new QueryClient({
@@ -54,6 +57,10 @@ export default function App() {
             <Route path="/evs" element={<EvsScanner />} />
             <Route path="/evs/trades" element={<EvsTrades />} />
             <Route path="/evs/settings" element={<EvsSettings />} />
+            {/* Training — pages self-fetch; plan/sync/bot run in tr-* edge fns */}
+            <Route path="/training" element={<TrainingDashboard />} />
+            <Route path="/training/races" element={<TrainingRaces />} />
+            <Route path="/training/settings" element={<TrainingSettings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>
