@@ -5,6 +5,7 @@ import type { Session } from "@supabase/supabase-js";
 import { supabase } from "./lib/supabase";
 import Layout from "./components/Layout";
 import Login from "./pages/Login";
+import Privacy from "./pages/Privacy";
 import Home from "./pages/Home";
 import Infrastructure from "./pages/Infrastructure";
 import FinShell, { type FinContext } from "./apps/fin/FinShell";
@@ -35,6 +36,10 @@ export default function App() {
     const { data: sub } = supabase.auth.onAuthStateChange((_e, s) => setSession(s));
     return () => sub.subscription.unsubscribe();
   }, []);
+
+  // /privacy is deliberately OUTSIDE the auth gate — Google's OAuth consent
+  // screen links to it and may fetch it anonymously.
+  if (window.location.pathname === "/privacy") return <Privacy />;
 
   if (loading) return <div className="flex min-h-screen items-center justify-center"><Spinner /></div>;
   if (!session) return <Login />;
