@@ -26,15 +26,22 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   activity: scalars + arrays ≤12 long, nulls dropped); per week: gym vs cardio
   totals with Δ% vs the previous week. Gym bucket = strength + 'other' (Garmin
   logs Jared's gym sessions as generic "Workout").
-- **Custom HR zones** (0004, `tr_settings.hr_zones` = jsonb array of ascending bpm
-  ceilings, last = max HR; edited in Training → Settings, updated after each
-  lactate/VO2max test). When set, tr-sync fetches each activity's raw heartrate
-  stream (`/api/v1/activity/{id}/streams?types=time,heartrate`) ONCE per
-  zones-version (`data.custom_zones_key`) and buckets seconds against the user's
-  ceilings into `data.custom_hr_zone_secs` (gaps capped at 30s; validated within
-  ~1–2% of intervals.icu's own bucketing). The Activities tab prefers these and,
-  when custom zones are configured, never falls back to the intervals.icu model
-  (mixing zone models across cards misleads). NULL = intervals.icu model.
+- **Custom HR zones are DATED VERSIONS** (`tr_hr_zones`: effective_from + ceilings +
+  note; 0004 single-column form superseded by 0005). Each set applies to activities
+  on/after its date until the next version; activities older than the earliest
+  version use the earliest (Jared re-tests lactate/VO2max — history keeps the zones
+  that were true at the time). Managed in Training → Settings (add a set with a
+  date / delete; every change triggers a sync that re-buckets ONLY affected
+  activities). tr-sync fetches each activity's raw heartrate stream
+  (`/api/v1/activity/{id}/streams?types=time,heartrate`) once per applicable
+  zones-version and buckets seconds against that version's ceilings (gaps capped
+  at 30s; validated within ~1–2% of intervals.icu's own bucketing). **Results live
+  in real COLUMNS on tr_workouts** (`hr_zone_secs/hr_zones/hr_zones_key`, 0006) —
+  NOT in the data jsonb, which the activity upsert rewrites wholesale every sync
+  (that wipe bug caused every stream to be refetched each run). The Activities tab
+  prefers the columns and, when any zone version exists, never falls back to the
+  intervals.icu model. Current baseline: 5 zones 146/154/163/172/191 effective
+  2000-01-01 (estimated from LTHR 173 / max 191, pre-test).
 - **Daily wellness** (resting HR, HRV, sleep, weight) also comes from intervals.icu —
   Garmin pushes its wellness stream there, so recovery-aware planning works WITHOUT
   Apple Health after all (0003, `tr_wellness`, one row/day). tr-plan-week and the bot

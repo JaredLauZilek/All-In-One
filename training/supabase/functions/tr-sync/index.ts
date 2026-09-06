@@ -109,7 +109,7 @@ Deno.serve(async (req) => {
 
     /* ---------- intervals.icu (Garmin feed) ---------- */
     const { data: settings } = await svc.from("tr_settings")
-      .select("hevy_api_key, intervals_athlete_id, intervals_api_key, hr_zones").eq("user_id", userId).maybeSingle();
+      .select("hevy_api_key, intervals_athlete_id, intervals_api_key").eq("user_id", userId).maybeSingle();
     let intervalsCount = 0, wellnessCount = 0, customZoned = 0;
     if (settings?.intervals_athlete_id && settings?.intervals_api_key) {
       try {
@@ -156,24 +156,41 @@ Deno.serve(async (req) => {
       } catch (e) { errors.push(`intervals.icu: ${String(e)}`); }
 
       /* ---------- custom HR zones: re-bucket raw HR streams ----------
-         Jared owns his zone ceilings (tr_settings.hr_zones, updated after each
-         lactate/VO2max test). intervals.icu's pre-bucketed zone times use ITS
-         model, so we fetch each activity's raw heartrate stream once per
-         zones-version and count seconds against HIS ceilings. Activities
-         already bucketed for the current ceilings are skipped. */
-      const ceilings = Array.isArray(settings.hr_zones)
-        ? (settings.hr_zones as unknown[]).map(Number).filter((n) => Number.isFinite(n) && n > 0)
-        : null;
-      if (ceilings && ceilings.length >= 3) {
-        const zonesKey = ceilings.join(",");
+         Zones are DATED VERSIONS (tr_hr_zones): each set applies from its
+         effective_from until the next version, so history keeps the zones
+         that were true at the time of the activity (activities older than
+         the earliest version use the earliest). Each activity's raw
+         heartrate stream is fetched once per applicable zones-version
+         (data.custom_zones_key embeds the version date) and seconds are
+         counted against that version's ceilings. */
+      const { data: zoneRows } = await svc.from("tr_hr_zones")
+        .select("effective_from, ceilings").eq("user_id", userId)
+        .order("effective_from", { ascending: true });
+      const versions = (zoneRows ?? [])
+        .map((v) => ({
+          from: String(v.effective_from),
+          ceilings: (Array.isArray(v.ceilings) ? v.ceilings : []).map(Number).filter((n) => Number.isFinite(n) && n > 0),
+        }))
+        .filter((v) => v.ceilings.length >= 3);
+      if (versions.length) {
+        const versionFor = (day: string) => {
+          let v = versions[0]; // pre-history falls back to the earliest version
+          for (const cand of versions) { if (cand.from <= day) v = cand; else break; }
+          return v;
+        };
         const auth = "Basic " + btoa(`API_KEY:${settings.intervals_api_key}`);
+        // Results live in dedicated COLUMNS (0006): the activity upsert above
+        // rewrites the data jsonb wholesale each run, so anything stored there
+        // would be wiped and every stream refetched forever.
         const { data: candidates } = await svc.from("tr_workouts")
-          .select("id, external_id, data").eq("user_id", userId).eq("source", "intervals")
+          .select("id, external_id, started_at, hr_zones_key").eq("user_id", userId).eq("source", "intervals")
           .gte("started_at", since.toISOString());
         let rebucketed = 0, streamFails = 0;
         for (const wk of (candidates ?? []).slice(0, 60)) {
-          const d = (wk.data ?? {}) as Record<string, unknown>;
-          if (d.custom_zones_key === zonesKey) continue;
+          const ver = versionFor(mytDate(wk.started_at));
+          const ceilings = ver.ceilings;
+          const zonesKey = `${ver.from}:${ceilings.join(",")}`;
+          if (wk.hr_zones_key === zonesKey) continue;
           try {
             const r = await fetch(
               `https://intervals.icu/api/v1/activity/${encodeURIComponent(wk.external_id)}/streams?types=time,heartrate`,
@@ -199,10 +216,9 @@ Deno.serve(async (req) => {
             }
             // remember the attempt either way so a stream-less activity
             // (or transient failure leaving nulls) isn't refetched forever
-            d.custom_hr_zone_secs = secs;
-            d.custom_hr_zones = ceilings;
-            d.custom_zones_key = zonesKey;
-            const { error } = await svc.from("tr_workouts").update({ data: d }).eq("id", wk.id);
+            const { error } = await svc.from("tr_workouts").update({
+              hr_zone_secs: secs, hr_zones: ceilings, hr_zones_key: zonesKey,
+            }).eq("id", wk.id);
             if (error) throw new Error(error.message);
             if (secs) rebucketed++; else streamFails++;
           } catch { streamFails++; }

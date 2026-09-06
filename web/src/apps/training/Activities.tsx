@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CalendarRange } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Card, EmptyState, cn } from "../../components/ui";
-import { type TrWorkout, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useTrSettings } from "./lib";
+import { type TrWorkout, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
 
 const WEEKS_SHOWN = 6;
 
@@ -53,7 +53,6 @@ const rangeLabel = (weekStart: string) => {
 
 interface Detail {
   icu_hr_zone_times?: number[]; icu_hr_zones?: number[];
-  custom_hr_zone_secs?: number[] | null; custom_hr_zones?: number[];
   average_cadence?: number;
 }
 
@@ -64,10 +63,10 @@ const stepsOf = (w: TrWorkout) => {
 };
 
 export default function Activities() {
-  // With custom zones configured, cards NEVER fall back to intervals.icu's
-  // model (mixing two zone models across cards misleads more than no graph).
-  const { data: settings } = useTrSettings();
-  const customOnly = Array.isArray(settings?.hr_zones) && (settings?.hr_zones?.length ?? 0) >= 3;
+  // With custom zone versions configured, cards NEVER fall back to
+  // intervals.icu's model (mixing zone models across cards misleads).
+  const { data: zoneVersions } = useHrZoneVersions();
+  const customOnly = (zoneVersions ?? []).length > 0;
   const { data: workouts } = useQuery({
     queryKey: ["tr-activities"],
     queryFn: async () => {
@@ -233,16 +232,16 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
 function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) {
   const d = w.data as Detail;
   // Custom zone seconds (bucketed by tr-sync from the raw HR stream against
-  // Jared's own ceilings) win; the intervals.icu model is only a fallback
-  // while no custom zones are configured.
-  const custom = Array.isArray(d.custom_hr_zone_secs) && d.custom_hr_zone_secs.length >= 3
-    ? d.custom_hr_zone_secs : null;
+  // Jared's dated zone versions — real columns) win; the intervals.icu model
+  // is only a fallback while no custom zone versions exist.
+  const custom = Array.isArray(w.hr_zone_secs) && w.hr_zone_secs.length >= 3
+    ? w.hr_zone_secs : null;
   const zones = custom ?? (() => {
     if (customOnly) return null;
     const t = d.icu_hr_zone_times;
     return Array.isArray(t) && t.length >= 3 ? t : null;
   })();
-  const ceilings = custom ? d.custom_hr_zones : d.icu_hr_zones;
+  const ceilings = custom ? w.hr_zones : d.icu_hr_zones;
   const zoneTotal = zones ? zones.reduce((a, b) => a + b, 0) : 0;
   const maxZone = zones ? Math.max(...zones) : 0;
   const zoneTip = (i: number) => {

@@ -6,12 +6,12 @@
 // (tr_tokens is edge-only; the browser never sees them).
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, Minus } from "lucide-react";
+import { Plus, Minus, Trash2 } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Check, X, ExternalLink } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, Input, Select, DataRow, cn } from "../../components/ui";
-import { useTrSettings } from "./lib";
+import { useTrSettings, useHrZoneVersions } from "./lib";
 
 interface ConnStatus {
   intervals: { configured: boolean; athlete_id: string | null };
@@ -152,78 +152,115 @@ export default function Settings() {
   );
 }
 
-/* ---------------- custom HR zones ----------------
-   Jared re-tests lactate threshold / VO2max periodically and owns his zone
-   ceilings here. Saving re-buckets every stored activity's raw HR stream
-   against the new ceilings (tr-sync); clearing falls back to the
-   intervals.icu model. */
+/* ---------------- HR zones: dated versions ----------------
+   Zones change when Jared re-tests (lactate / VO2max) — each saved set
+   applies from its effective date until the next one, so past activities
+   keep the zones that were true at the time. tr-sync re-buckets each
+   activity's raw HR stream against the version in force on its day. */
 function ZonesCard() {
   const qc = useQueryClient();
-  const { data: settings } = useTrSettings();
-  // Prefill suggestion: a 5-ZONE model (Jared's choice — never intervals.icu's
-  // 7-zone shape). Derived from the thresholds seen in synced activities:
-  // their first four ceilings + max HR collapse cleanly into Z1–Z5.
-  const { data: suggestion } = useQuery({
-    queryKey: ["tr-zone-suggestion"],
-    queryFn: async () => {
-      const { data } = await supabase.from("tr_workouts").select("data")
-        .eq("source", "intervals").order("started_at", { ascending: false }).limit(5);
-      for (const row of data ?? []) {
-        const z = (row.data as { icu_hr_zones?: number[] })?.icu_hr_zones;
-        if (Array.isArray(z) && z.length >= 5) return [...z.slice(0, 4), z[z.length - 1]];
-        if (Array.isArray(z) && z.length >= 3) return z;
-      }
-      return null;
-    },
-    refetchInterval: false,
-  });
+  const { data: versions } = useHrZoneVersions(); // newest first
+  const latest = versions?.[0] ?? null;
+  const today = new Date().toISOString().slice(0, 10);
+  const current = (versions ?? []).find((v) => v.effective_from <= today) ?? latest;
 
+  const [date, setDate] = useState(today);
   const [rows, setRows] = useState<string[] | null>(null);
+  const [note, setNote] = useState("");
   const [msg, setMsg] = useState<string | null>(null);
-  const values = rows ?? settings?.hr_zones?.map(String)
-    ?? suggestion?.map(String) ?? ["140", "150", "160", "170", "190"];
-  const active = Array.isArray(settings?.hr_zones) && (settings?.hr_zones?.length ?? 0) >= 3;
+  const values = rows ?? latest?.ceilings.map(String) ?? ["140", "150", "160", "170", "190"];
 
-  const save = useMutation({
-    mutationFn: async (zones: number[] | null) => {
-      const uid = (await supabase.auth.getUser()).data.user!.id;
-      const { error } = await supabase.from("tr_settings")
-        .update({ hr_zones: zones, updated_at: new Date().toISOString() }).eq("user_id", uid);
+  const resync = async () => {
+    const { data: res, error } = await supabase.functions.invoke("tr-sync", { body: { days: 120 } });
+    if (error) throw error;
+    return res as { custom_zoned?: number; errors?: string[] };
+  };
+  const invalidate = () => {
+    qc.invalidateQueries({ queryKey: ["tr-hr-zones"] });
+    qc.invalidateQueries({ queryKey: ["tr-activities"] });
+  };
+
+  const add = useMutation({
+    mutationFn: async (zones: number[]) => {
+      const { error } = await supabase.from("tr_hr_zones")
+        .insert({ effective_from: date, ceilings: zones, note: note.trim() || null });
       if (error) throw error;
-      if (!zones) return null;
-      setMsg("Saved — re-bucketing past activities against your zones…");
-      const { data: res, error: syncErr } = await supabase.functions.invoke("tr-sync", { body: {} });
-      if (syncErr) throw syncErr;
-      return (res as { custom_zoned?: number; errors?: string[] });
+      setMsg("Saved — re-bucketing the affected activities…");
+      return resync();
     },
     onSuccess: (res) => {
-      qc.invalidateQueries({ queryKey: ["tr-settings"] });
-      qc.invalidateQueries({ queryKey: ["tr-activities"] });
-      setMsg(res === null
-        ? "Reverted to the intervals.icu zone model."
-        : `Saved ✓ ${res.custom_zoned ?? 0} activities re-bucketed to your zones.${res.errors?.length ? ` (${res.errors.join("; ")})` : ""}`);
+      invalidate(); setRows(null); setNote("");
+      setMsg(`Added ✓ zones effective ${date} — ${res.custom_zoned ?? 0} activities re-bucketed.${res.errors?.length ? ` (${res.errors.join("; ")})` : ""}`);
+    },
+    onError: (e) => setMsg(`Failed: ${String(e)}`),
+  });
+
+  const remove = useMutation({
+    mutationFn: async (id: string) => {
+      const { error } = await supabase.from("tr_hr_zones").delete().eq("id", id);
+      if (error) throw error;
+      setMsg("Deleted — re-bucketing…");
+      return resync();
+    },
+    onSuccess: (res) => {
+      invalidate();
+      setMsg(`Deleted ✓ ${res.custom_zoned ?? 0} activities re-bucketed to the remaining versions.`);
     },
     onError: (e) => setMsg(`Failed: ${String(e)}`),
   });
 
   function submit() {
     const nums = values.map((v) => Number(v.trim()));
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) { setMsg("Pick an effective date."); return; }
+    if ((versions ?? []).some((v) => v.effective_from === date)) {
+      setMsg("A zone set already exists for that date — delete it first."); return;
+    }
     if (nums.some((n) => !Number.isFinite(n) || n <= 0)) { setMsg("Every ceiling must be a number."); return; }
     if (nums.some((n, i) => i > 0 && n <= nums[i - 1])) { setMsg("Ceilings must strictly increase from Z1 to max."); return; }
-    save.mutate(nums.map(Math.round));
+    add.mutate(nums.map(Math.round));
   }
+
+  const fmtVersionDate = (d: string) => (d <= "2000-01-01" ? "Baseline (all history)" : `From ${d}`);
 
   return (
     <Card>
       <CardHeader
         title="Heart-rate zones"
-        subtitle={active
-          ? "Using YOUR ceilings — zone graphs are re-bucketed from raw HR streams"
-          : "Using the intervals.icu model — set your own after your lactate / VO₂max test"}
-        action={<Button onClick={submit} loading={save.isPending}>Save zones</Button>}
+        subtitle="Dated versions — a new set applies from its date; older activities keep the zones that were true at the time"
       />
+
+      {(versions ?? []).length > 0 && (
+        <ul className="divide-y divide-slate-100 border-b border-slate-100">
+          {(versions ?? []).map((v) => (
+            <li key={v.id} className="flex flex-wrap items-center gap-x-3 gap-y-1 px-5 py-2.5">
+              <span className="text-xs font-semibold text-slate-800">{fmtVersionDate(v.effective_from)}</span>
+              <span className="font-mono text-xs text-slate-500">{v.ceilings.join(" / ")}</span>
+              {v.id === current?.id && (
+                <span className="rounded-full bg-ink px-1.5 py-0.5 text-[10px] font-semibold text-accent dark:bg-accent dark:text-ink">current</span>
+              )}
+              {v.note && <span className="text-[11px] text-slate-400">{v.note}</span>}
+              <button
+                onClick={() => {
+                  if (confirm(`Delete the zone set ${fmtVersionDate(v.effective_from)}?${(versions ?? []).length === 1 ? "\n\nIt's the last one — zone graphs would fall back to the intervals.icu model." : ""}`))
+                    remove.mutate(v.id);
+                }}
+                className="ml-auto rounded-md p-1.5 text-slate-400 hover:bg-red-50 hover:text-red-600"
+              >
+                <Trash2 className="h-3.5 w-3.5" />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
       <div className="px-5 py-4">
+        <p className="mb-3 text-xs font-semibold text-slate-700">Add a new zone set (after a test)</p>
         <div className="flex flex-wrap items-end gap-2.5">
+          <label className="block">
+            <span className="mb-1 block text-[11px] font-medium text-slate-500">Effective from</span>
+            <Input type="date" value={date} onChange={(e) => setDate(e.target.value)}
+              className="w-[9.5rem] px-2 py-1.5 font-mono text-sm" />
+          </label>
           {values.map((v, i) => (
             <label key={i} className="block">
               <span className="mb-1 block text-center text-[11px] font-medium text-slate-500">
@@ -254,23 +291,22 @@ function ZonesCard() {
             </button>
           </div>
         </div>
+        <div className="mt-3 flex flex-wrap items-center gap-3">
+          <div className="min-w-[14rem] flex-1">
+            <Input placeholder="Note — e.g. Lactate test @ clinic" value={note} onChange={(e) => setNote(e.target.value)} />
+          </div>
+          <Button onClick={submit} loading={add.isPending}>Add zone set</Button>
+        </div>
         <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-          Ceilings in bpm: Z1 = everything up to the first value, each next zone runs to its
-          ceiling, the last value is your max HR. Saving re-buckets every stored activity from
-          its raw heart-rate stream, so update these after each test and history follows.
+          Ceilings in bpm — Z1 runs up to the first value, each next zone to its ceiling, the last
+          value is max HR. Activities on/after the date use the new set; everything earlier keeps
+          its old zones. Re-bucketing happens automatically from raw heart-rate streams.
         </p>
         {msg && (
           <p className={cn("mt-2 rounded-lg px-3 py-2 text-xs",
-            msg.startsWith("Failed") || msg.includes("must") ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700")}>
+            msg.startsWith("Failed") || msg.includes("must") || msg.includes("already") ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700")}>
             {msg}
           </p>
-        )}
-        {active && (
-          <div className="mt-2">
-            <Button variant="ghost" className="px-2.5 py-1 text-xs" onClick={() => { setRows(null); save.mutate(null); }}>
-              Clear — use the intervals.icu model instead
-            </Button>
-          </div>
         )}
       </div>
     </Card>

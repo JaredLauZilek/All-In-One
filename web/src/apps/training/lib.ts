@@ -23,9 +23,11 @@ export interface TrSession {
 }
 
 export interface TrWorkout {
-  id: string; source: "strava" | "hevy" | "manual"; sport: string; name: string | null;
+  id: string; source: "strava" | "hevy" | "manual" | "intervals"; sport: string; name: string | null;
   started_at: string; duration_min: number | null; distance_km: number | null;
   avg_hr: number | null; data: Record<string, unknown>;
+  // custom zone results (columns — survive the sync's data upsert)
+  hr_zone_secs: number[] | null; hr_zones: number[] | null; hr_zones_key: string | null;
 }
 
 export interface TrWellness {
@@ -36,7 +38,6 @@ export interface TrWellness {
 export interface TrSettings {
   user_id: string; telegram_chat_id: string | null; pairing_code: string;
   hevy_api_key: string | null; intervals_athlete_id: string | null; intervals_api_key: string | null;
-  hr_zones: number[] | null;   // custom zone ceilings (bpm, ascending); null = intervals.icu model
   weekly_hours: number; days_per_week: number;
   long_run_day: string; session_time: string; last_synced_at: string | null;
 }
@@ -81,6 +82,25 @@ export const DAY_NAMES = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
 export function daysUntil(dateStr: string): number {
   return Math.ceil((new Date(dateStr + "T00:00:00").getTime() - Date.now()) / 86400_000);
+}
+
+// Dated HR-zone versions: each set applies from effective_from until the next
+// version; activities older than the earliest version use the earliest.
+export interface TrHrZones {
+  id: string; effective_from: string; ceilings: number[]; note: string | null;
+}
+
+export function useHrZoneVersions() {
+  return useQuery({
+    queryKey: ["tr-hr-zones"],
+    queryFn: async (): Promise<TrHrZones[]> => {
+      const { data, error } = await supabase.from("tr_hr_zones").select("*")
+        .order("effective_from", { ascending: false });
+      if (error) throw error;
+      return data as TrHrZones[];
+    },
+    refetchInterval: false,
+  });
 }
 
 // Settings row created lazily on first read (same pattern as evs_settings).
