@@ -7,7 +7,7 @@ import { useQuery } from "@tanstack/react-query";
 import { CalendarRange } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Card, EmptyState, cn } from "../../components/ui";
-import { type TrWorkout, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES } from "./lib";
+import { type TrWorkout, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useTrSettings } from "./lib";
 
 const WEEKS_SHOWN = 6;
 
@@ -51,7 +51,11 @@ const rangeLabel = (weekStart: string) => {
     : `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]}`;
 };
 
-interface Detail { icu_hr_zone_times?: number[]; icu_hr_zones?: number[]; average_cadence?: number }
+interface Detail {
+  icu_hr_zone_times?: number[]; icu_hr_zones?: number[];
+  custom_hr_zone_secs?: number[] | null; custom_hr_zones?: number[];
+  average_cadence?: number;
+}
 
 const workoutDay = (w: TrWorkout) => localISO(new Date(w.started_at));
 const stepsOf = (w: TrWorkout) => {
@@ -60,6 +64,10 @@ const stepsOf = (w: TrWorkout) => {
 };
 
 export default function Activities() {
+  // With custom zones configured, cards NEVER fall back to intervals.icu's
+  // model (mixing two zone models across cards misleads more than no graph).
+  const { data: settings } = useTrSettings();
+  const customOnly = Array.isArray(settings?.hr_zones) && (settings?.hr_zones?.length ?? 0) >= 3;
   const { data: workouts } = useQuery({
     queryKey: ["tr-activities"],
     queryFn: async () => {
@@ -99,6 +107,7 @@ export default function Activities() {
           workouts={weekWorkouts(start)}
           prevWorkouts={i < WEEKS_SHOWN - 1 ? weekWorkouts(addDaysISO(start, -7)) : null}
           byDay={byDay}
+          customOnly={customOnly}
         />
       ))}
     </div>
@@ -106,9 +115,9 @@ export default function Activities() {
 }
 
 /* ---------------- one week: summary rail + 7-day grid ---------------- */
-function WeekRow({ weekStart, isCurrent, workouts, prevWorkouts, byDay }: {
+function WeekRow({ weekStart, isCurrent, workouts, prevWorkouts, byDay, customOnly }: {
   weekStart: string; isCurrent: boolean; workouts: TrWorkout[];
-  prevWorkouts: TrWorkout[] | null; byDay: Map<string, TrWorkout[]>;
+  prevWorkouts: TrWorkout[] | null; byDay: Map<string, TrWorkout[]>; customOnly: boolean;
 }) {
   return (
     <Card className="overflow-hidden">
@@ -127,7 +136,7 @@ function WeekRow({ weekStart, isCurrent, workouts, prevWorkouts, byDay }: {
                     {dayLabel(day)}
                   </p>
                   <div className="space-y-2">
-                    {todays.map((w) => <ActivityCard key={w.id} w={w} />)}
+                    {todays.map((w) => <ActivityCard key={w.id} w={w} customOnly={customOnly} />)}
                   </div>
                 </div>
               );
@@ -221,13 +230,19 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
 }
 
 /* ---------------- one activity mini-card ---------------- */
-function ActivityCard({ w }: { w: TrWorkout }) {
-  // One bar per zone, exactly as intervals.icu models them (no folding).
-  const zones = (() => {
-    const t = (w.data as Detail).icu_hr_zone_times;
+function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) {
+  const d = w.data as Detail;
+  // Custom zone seconds (bucketed by tr-sync from the raw HR stream against
+  // Jared's own ceilings) win; the intervals.icu model is only a fallback
+  // while no custom zones are configured.
+  const custom = Array.isArray(d.custom_hr_zone_secs) && d.custom_hr_zone_secs.length >= 3
+    ? d.custom_hr_zone_secs : null;
+  const zones = custom ?? (() => {
+    if (customOnly) return null;
+    const t = d.icu_hr_zone_times;
     return Array.isArray(t) && t.length >= 3 ? t : null;
   })();
-  const ceilings = (w.data as Detail).icu_hr_zones;
+  const ceilings = custom ? d.custom_hr_zones : d.icu_hr_zones;
   const zoneTotal = zones ? zones.reduce((a, b) => a + b, 0) : 0;
   const maxZone = zones ? Math.max(...zones) : 0;
   const zoneTip = (i: number) => {

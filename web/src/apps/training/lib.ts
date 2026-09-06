@@ -36,6 +36,7 @@ export interface TrWellness {
 export interface TrSettings {
   user_id: string; telegram_chat_id: string | null; pairing_code: string;
   hevy_api_key: string | null; intervals_athlete_id: string | null; intervals_api_key: string | null;
+  hr_zones: number[] | null;   // custom zone ceilings (bpm, ascending); null = intervals.icu model
   weekly_hours: number; days_per_week: number;
   long_run_day: string; session_time: string; last_synced_at: string | null;
 }

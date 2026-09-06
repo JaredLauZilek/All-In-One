@@ -6,6 +6,7 @@
 // (tr_tokens is edge-only; the browser never sees them).
 import { useEffect, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, Minus } from "lucide-react";
 import { useSearchParams } from "react-router-dom";
 import { Check, X, ExternalLink } from "lucide-react";
 import { supabase } from "../../lib/supabase";
@@ -145,8 +146,131 @@ export default function Settings() {
         </p>
       </Card>
 
+      {settings && <ZonesCard />}
       {settings && <PrefsCard />}
     </div>
+  );
+}
+
+/* ---------------- custom HR zones ----------------
+   Jared re-tests lactate threshold / VO2max periodically and owns his zone
+   ceilings here. Saving re-buckets every stored activity's raw HR stream
+   against the new ceilings (tr-sync); clearing falls back to the
+   intervals.icu model. */
+function ZonesCard() {
+  const qc = useQueryClient();
+  const { data: settings } = useTrSettings();
+  // prefill suggestion: the intervals.icu model from the latest synced activity
+  const { data: suggestion } = useQuery({
+    queryKey: ["tr-zone-suggestion"],
+    queryFn: async () => {
+      const { data } = await supabase.from("tr_workouts").select("data")
+        .eq("source", "intervals").order("started_at", { ascending: false }).limit(5);
+      for (const row of data ?? []) {
+        const z = (row.data as { icu_hr_zones?: number[] })?.icu_hr_zones;
+        if (Array.isArray(z) && z.length >= 3) return z;
+      }
+      return null;
+    },
+    refetchInterval: false,
+  });
+
+  const [rows, setRows] = useState<string[] | null>(null);
+  const [msg, setMsg] = useState<string | null>(null);
+  const values = rows ?? settings?.hr_zones?.map(String)
+    ?? suggestion?.map(String) ?? ["140", "150", "160", "170", "190"];
+  const active = Array.isArray(settings?.hr_zones) && (settings?.hr_zones?.length ?? 0) >= 3;
+
+  const save = useMutation({
+    mutationFn: async (zones: number[] | null) => {
+      const uid = (await supabase.auth.getUser()).data.user!.id;
+      const { error } = await supabase.from("tr_settings")
+        .update({ hr_zones: zones, updated_at: new Date().toISOString() }).eq("user_id", uid);
+      if (error) throw error;
+      if (!zones) return null;
+      setMsg("Saved — re-bucketing past activities against your zones…");
+      const { data: res, error: syncErr } = await supabase.functions.invoke("tr-sync", { body: {} });
+      if (syncErr) throw syncErr;
+      return (res as { custom_zoned?: number; errors?: string[] });
+    },
+    onSuccess: (res) => {
+      qc.invalidateQueries({ queryKey: ["tr-settings"] });
+      qc.invalidateQueries({ queryKey: ["tr-activities"] });
+      setMsg(res === null
+        ? "Reverted to the intervals.icu zone model."
+        : `Saved ✓ ${res.custom_zoned ?? 0} activities re-bucketed to your zones.${res.errors?.length ? ` (${res.errors.join("; ")})` : ""}`);
+    },
+    onError: (e) => setMsg(`Failed: ${String(e)}`),
+  });
+
+  function submit() {
+    const nums = values.map((v) => Number(v.trim()));
+    if (nums.some((n) => !Number.isFinite(n) || n <= 0)) { setMsg("Every ceiling must be a number."); return; }
+    if (nums.some((n, i) => i > 0 && n <= nums[i - 1])) { setMsg("Ceilings must strictly increase from Z1 to max."); return; }
+    save.mutate(nums.map(Math.round));
+  }
+
+  return (
+    <Card>
+      <CardHeader
+        title="Heart-rate zones"
+        subtitle={active
+          ? "Using YOUR ceilings — zone graphs are re-bucketed from raw HR streams"
+          : "Using the intervals.icu model — set your own after your lactate / VO₂max test"}
+        action={<Button onClick={submit} loading={save.isPending}>Save zones</Button>}
+      />
+      <div className="px-5 py-4">
+        <div className="flex flex-wrap items-end gap-2.5">
+          {values.map((v, i) => (
+            <label key={i} className="block">
+              <span className="mb-1 block text-center text-[11px] font-medium text-slate-500">
+                Z{i + 1}{i === values.length - 1 ? " (max)" : " ≤"}
+              </span>
+              <Input
+                inputMode="numeric"
+                value={v}
+                onChange={(e) => {
+                  const next = [...values];
+                  next[i] = e.target.value;
+                  setRows(next);
+                }}
+                className="w-[4.2rem] px-2 py-1.5 text-center font-mono text-sm"
+              />
+            </label>
+          ))}
+          <div className="flex gap-1 pb-0.5">
+            <button title="Add a zone" disabled={values.length >= 8}
+              onClick={() => setRows([...values, String(Number(values[values.length - 1] || 0) + 5)])}
+              className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40">
+              <Plus className="h-4 w-4" />
+            </button>
+            <button title="Remove the last zone" disabled={values.length <= 3}
+              onClick={() => setRows(values.slice(0, -1))}
+              className="rounded-full p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-700 disabled:opacity-40">
+              <Minus className="h-4 w-4" />
+            </button>
+          </div>
+        </div>
+        <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
+          Ceilings in bpm: Z1 = everything up to the first value, each next zone runs to its
+          ceiling, the last value is your max HR. Saving re-buckets every stored activity from
+          its raw heart-rate stream, so update these after each test and history follows.
+        </p>
+        {msg && (
+          <p className={cn("mt-2 rounded-lg px-3 py-2 text-xs",
+            msg.startsWith("Failed") || msg.includes("must") ? "bg-red-50 text-red-700" : "bg-emerald-50 text-emerald-700")}>
+            {msg}
+          </p>
+        )}
+        {active && (
+          <div className="mt-2">
+            <Button variant="ghost" className="px-2.5 py-1 text-xs" onClick={() => { setRows(null); save.mutate(null); }}>
+              Clear — use the intervals.icu model instead
+            </Button>
+          </div>
+        )}
+      </div>
+    </Card>
   );
 }
 

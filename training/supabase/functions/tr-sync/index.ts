@@ -109,8 +109,8 @@ Deno.serve(async (req) => {
 
     /* ---------- intervals.icu (Garmin feed) ---------- */
     const { data: settings } = await svc.from("tr_settings")
-      .select("hevy_api_key, intervals_athlete_id, intervals_api_key").eq("user_id", userId).maybeSingle();
-    let intervalsCount = 0, wellnessCount = 0;
+      .select("hevy_api_key, intervals_athlete_id, intervals_api_key, hr_zones").eq("user_id", userId).maybeSingle();
+    let intervalsCount = 0, wellnessCount = 0, customZoned = 0;
     if (settings?.intervals_athlete_id && settings?.intervals_api_key) {
       try {
         // Basic auth with literal username "API_KEY" — intervals.icu convention.
@@ -154,6 +154,64 @@ Deno.serve(async (req) => {
         }
         intervalsCount = rows.length;
       } catch (e) { errors.push(`intervals.icu: ${String(e)}`); }
+
+      /* ---------- custom HR zones: re-bucket raw HR streams ----------
+         Jared owns his zone ceilings (tr_settings.hr_zones, updated after each
+         lactate/VO2max test). intervals.icu's pre-bucketed zone times use ITS
+         model, so we fetch each activity's raw heartrate stream once per
+         zones-version and count seconds against HIS ceilings. Activities
+         already bucketed for the current ceilings are skipped. */
+      const ceilings = Array.isArray(settings.hr_zones)
+        ? (settings.hr_zones as unknown[]).map(Number).filter((n) => Number.isFinite(n) && n > 0)
+        : null;
+      if (ceilings && ceilings.length >= 3) {
+        const zonesKey = ceilings.join(",");
+        const auth = "Basic " + btoa(`API_KEY:${settings.intervals_api_key}`);
+        const { data: candidates } = await svc.from("tr_workouts")
+          .select("id, external_id, data").eq("user_id", userId).eq("source", "intervals")
+          .gte("started_at", since.toISOString());
+        let rebucketed = 0, streamFails = 0;
+        for (const wk of (candidates ?? []).slice(0, 60)) {
+          const d = (wk.data ?? {}) as Record<string, unknown>;
+          if (d.custom_zones_key === zonesKey) continue;
+          try {
+            const r = await fetch(
+              `https://intervals.icu/api/v1/activity/${encodeURIComponent(wk.external_id)}/streams?types=time,heartrate`,
+              { headers: { Authorization: auth } },
+            );
+            let secs: number[] | null = null;
+            if (r.ok) {
+              const streams = await r.json();
+              const time = (streams.find?.((s: { type: string }) => s.type === "time") ?? {}).data as number[] | undefined;
+              const hr = (streams.find?.((s: { type: string }) => s.type === "heartrate") ?? {}).data as number[] | undefined;
+              if (Array.isArray(time) && Array.isArray(hr) && time.length === hr.length && time.length > 1) {
+                const acc = new Array(ceilings.length).fill(0);
+                for (let i = 1; i < time.length; i++) {
+                  const dt = Math.min(30, Number(time[i]) - Number(time[i - 1])); // cap gaps/pauses
+                  const h = Number(hr[i]);
+                  if (!(dt > 0) || !(h > 0)) continue;
+                  let z = ceilings.findIndex((c) => h <= c);
+                  if (z === -1) z = ceilings.length - 1; // above max → top zone
+                  acc[z] += dt;
+                }
+                secs = acc.map((s) => Math.round(s));
+              }
+            }
+            // remember the attempt either way so a stream-less activity
+            // (or transient failure leaving nulls) isn't refetched forever
+            d.custom_hr_zone_secs = secs;
+            d.custom_hr_zones = ceilings;
+            d.custom_zones_key = zonesKey;
+            const { error } = await svc.from("tr_workouts").update({ data: d }).eq("id", wk.id);
+            if (error) throw new Error(error.message);
+            if (secs) rebucketed++; else streamFails++;
+          } catch { streamFails++; }
+        }
+        if (rebucketed || streamFails) {
+          if (streamFails) errors.push(`custom zones: ${streamFails} activities had no usable HR stream`);
+          customZoned = rebucketed;
+        }
+      }
 
       /* wellness (Garmin stream): resting HR, HRV, sleep, weight — one row/day */
       try {
@@ -252,7 +310,7 @@ Deno.serve(async (req) => {
     }
 
     await svc.from("tr_settings").update({ last_synced_at: new Date().toISOString() }).eq("user_id", userId);
-    return json({ intervals: intervalsCount, wellness: wellnessCount, strava: stravaCount, hevy: hevyCount, matched, errors });
+    return json({ intervals: intervalsCount, wellness: wellnessCount, custom_zoned: customZoned, strava: stravaCount, hevy: hevyCount, matched, errors });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
