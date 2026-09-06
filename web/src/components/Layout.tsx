@@ -1,7 +1,9 @@
 // The one shell for all of All-In-One, styled after the "Finexy" reference:
-// warm canvas, TOP nav with pill tabs (active = ink pill), a floating icon
-// rail on the left (lg+) with the same sections + sign-out, and in-content
-// pill tabs for the active mini-app's sub-pages. No drawer/sidebar anymore.
+// warm canvas, a floating icon rail on the left (md+) for SECTIONS + sign-out,
+// and the active mini-app's sub-tabs as a pill group centered in the TOP bar
+// (Jared removed the redundant top section nav 2026-09-06 — the rail already
+// covers it). Below md: scrollable section pills under the bar, sub-tabs
+// in-content beside the page title. No drawer/sidebar anymore.
 //
 // Add a new mini-app: one entry in APPS (name/icon/items) — the top nav, rail,
 // sub-tabs and titles all derive from it.
@@ -138,8 +140,8 @@ function ProfileMenu({ email, dark, setTheme }: { email: string; dark: boolean; 
             <p className="text-sm font-bold text-slate-900">Jared</p>
             <p className="truncate text-xs text-slate-500">{email}</p>
           </div>
-          {/* the rail carries the toggle on lg+; this covers phones/tablets */}
-          <div className="flex items-center justify-between px-3 py-2 lg:hidden">
+          {/* the rail carries the toggle on md+; this covers phones */}
+          <div className="flex items-center justify-between px-3 py-2 md:hidden">
             <span className="text-sm font-semibold text-slate-700">Theme</span>
             <div className="flex gap-1">
               <ThemeButtons dark={dark} setTheme={setTheme} size="h-8 w-8" />
@@ -177,14 +179,18 @@ export default function Layout({ email }: { email: string }) {
             </span>
           </NavLink>
 
-          {/* section pills — centered on md+, scrollable row below the bar on mobile */}
-          <nav className="mx-auto hidden items-center gap-1 rounded-full bg-surface p-1.5 shadow-sm md:flex">
-            {SECTIONS.map((s) => (
-              <NavLink key={s.to} to={s.to} end={s.end} className={topPill}>
-                {s.label}
-              </NavLink>
-            ))}
-          </nav>
+          {/* the active app's sub-tabs, centered — sections live on the rail */}
+          {app ? (
+            <nav className="mx-auto hidden items-center gap-1 rounded-full bg-slate-100 p-1 md:flex">
+              {app.items.map(({ to, label, end }) => (
+                <NavLink key={to} to={to} end={end} className={subPill}>
+                  {label}
+                </NavLink>
+              ))}
+            </nav>
+          ) : (
+            <div className="mx-auto hidden md:block" />
+          )}
 
           <div className="ml-auto flex items-center gap-2 md:ml-0">
             {/* Sections portal-mount header actions here (the fin Refresh button). */}
@@ -209,7 +215,7 @@ export default function Layout({ email }: { email: string }) {
       <div className="mx-auto flex max-w-[1440px] items-start gap-6 px-4 pb-12 pt-4 sm:px-8">
         {/* Reference-style rail: theme pill on top, sections, sign-out pill at
             the bottom — three separate floating pills. */}
-        <aside className="sticky top-24 hidden shrink-0 flex-col gap-3 lg:flex">
+        <aside className="sticky top-24 hidden shrink-0 flex-col gap-3 md:flex">
           <div className="flex flex-col items-center gap-1 rounded-full bg-surface p-2 shadow-sm">
             <ThemeButtons dark={dark} setTheme={setTheme} />
           </div>
@@ -250,8 +256,9 @@ export default function Layout({ email }: { email: string }) {
           {title && (
             <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
               <h1 className="text-3xl font-extrabold tracking-tight text-slate-900">{title}</h1>
+              {/* phones only — on md+ these tabs sit centered in the top bar */}
               {app && (
-                <div className="flex gap-1 rounded-full bg-slate-100 p-1">
+                <div className="flex gap-1 rounded-full bg-slate-100 p-1 md:hidden">
                   {app.items.map(({ to, label, end }) => (
                     <NavLink key={to} to={to} end={end} className={subPill}>
                       {label}

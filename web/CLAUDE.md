@@ -193,16 +193,17 @@ touching UI.
 
 ### Shell (`Layout.tsx`)
 
-TOP bar: lime logo tile + wordmark · centered white pill-group nav with **ink pill for
-the active section** (Home / apps / Infrastructure) · `#header-actions` portal slot (fin's
-Refresh button mounts there) · user chip with sign-out. At `lg+` a **floating icon rail**
-(white rounded-full column, sticky) mirrors the sections + sign-out; below `md` the nav
-becomes the same white pill group in a horizontally scrolling row under the bar
-(scrollbar hidden). The active app's sub-pages render as an
-in-content pill tab row beside the big page title. There is **no drawer/sidebar** — the
-old z-order/hamburger gotchas are gone. Everything derives from the `APPS` array: a new
-mini-app = one APPS entry (name/icon/items) + routes in `App.tsx` + a Home tile +
-Infrastructure `SERVICES` entries.
+TOP bar: lime logo tile + wordmark · the **active app's sub-tabs centered as a gray
+pill group** (white active pill — there is no top section nav; Jared removed it
+2026-09-06 as redundant with the rail) · `#header-actions` portal slot (fin's Refresh
+button mounts there) · user chip with sign-out. At `md+` the **floating icon rail**
+(white rounded-full column, sticky) carries the sections + theme toggle + sign-out —
+it is the ONLY section nav on md+. Below `md`: sections become a scrolling white pill
+group under the bar, and the sub-tabs render in-content beside the big page title
+(both `md:hidden`/mobile-only — don't resurrect them on desktop). There is **no
+drawer/sidebar** — the old z-order/hamburger gotchas are gone. Everything derives from
+the `APPS` array: a new mini-app = one APPS entry (name/icon/items) + routes in
+`App.tsx` + a Home tile + Infrastructure `SERVICES` entries.
 
 Wide tables still scroll inside their card (`overflow-x-auto` + `min-w-[…]`), never the
 page — but that's for *read-only* tables (the trade log). Tables with **inputs** must
