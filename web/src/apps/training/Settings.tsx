@@ -160,7 +160,9 @@ export default function Settings() {
 function ZonesCard() {
   const qc = useQueryClient();
   const { data: settings } = useTrSettings();
-  // prefill suggestion: the intervals.icu model from the latest synced activity
+  // Prefill suggestion: a 5-ZONE model (Jared's choice — never intervals.icu's
+  // 7-zone shape). Derived from the thresholds seen in synced activities:
+  // their first four ceilings + max HR collapse cleanly into Z1–Z5.
   const { data: suggestion } = useQuery({
     queryKey: ["tr-zone-suggestion"],
     queryFn: async () => {
@@ -168,6 +170,7 @@ function ZonesCard() {
         .eq("source", "intervals").order("started_at", { ascending: false }).limit(5);
       for (const row of data ?? []) {
         const z = (row.data as { icu_hr_zones?: number[] })?.icu_hr_zones;
+        if (Array.isArray(z) && z.length >= 5) return [...z.slice(0, 4), z[z.length - 1]];
         if (Array.isArray(z) && z.length >= 3) return z;
       }
       return null;
