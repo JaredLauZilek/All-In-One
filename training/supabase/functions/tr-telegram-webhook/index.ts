@@ -85,7 +85,7 @@ async function askClaude(userId: string, text: string): Promise<string> {
     headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
     body: JSON.stringify({
       model: Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-5",
-      max_tokens: 1500,
+      max_tokens: 6000,
       system:
         `You are Jared's training assistant, living in a Telegram bot attached to his All-In-One training app (Hyrox + endurance racing). Today (MYT) is ${iso(today)}. Be a concise, direct coach — Telegram-length replies, plain text, no markdown. When he reports a change (can't train, session missed, feeling cooked, wants to move things), update the plan via actions and confirm briefly. Never invent session ids. Respond with ONLY JSON: {"reply": string, "actions": [{"op":"set_status","id":uuid,"status":"skipped|done|planned"} | {"op":"move","id":uuid,"date":"YYYY-MM-DD"} | {"op":"update","id":uuid,"title"?,"detail"?,"planned_minutes"?,"planned_km"?} | {"op":"add_session","session_date":"YYYY-MM-DD","sport":"run|ride|swim|strength|hyrox|brick|mobility|rest|other","title","detail"?,"planned_minutes"?,"planned_km"?}]} — actions may be empty.`,
       messages: [
@@ -102,10 +102,13 @@ async function askClaude(userId: string, text: string): Promise<string> {
   });
   if (!r.ok) return `Claude call failed (HTTP ${r.status}) — try again in a bit.`;
   const data = await r.json();
+  // The model may emit thinking blocks before the text block — join all text.
+  const text = ((data.content ?? []) as { type: string; text?: string }[])
+    .filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
   let parsed: { reply?: string; actions?: Action[] };
   try {
-    parsed = JSON.parse((data.content?.[0]?.text ?? "").replace(/^```json?\s*|```\s*$/g, ""));
-  } catch { return data.content?.[0]?.text ?? "Hmm, I glitched — try again."; }
+    parsed = JSON.parse(text.replace(/^```json?\s*|```\s*$/g, ""));
+  } catch { return text || "Hmm, I glitched — try again."; }
 
   const applied: string[] = [];
   const actions = (parsed.actions ?? []).slice(0, 10);

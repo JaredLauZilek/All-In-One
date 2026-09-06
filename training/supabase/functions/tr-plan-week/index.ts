@@ -154,32 +154,39 @@ async function gcalInsert(access: string, sess: Sess, sessionTime: string): Prom
 }
 
 /* ---------------- optional Claude adjustment pass ---------------- */
-async function claudeAdjust(ctx: Record<string, unknown>, sessions: Sess[]): Promise<{ sessions: Sess[]; focus?: string } | null> {
+async function claudeAdjust(ctx: Record<string, unknown>, sessions: Sess[]): Promise<{ sessions?: Sess[]; focus?: string; error?: string }> {
   const key = Deno.env.get("ANTHROPIC_API_KEY");
-  if (!key) return null;
+  if (!key) return { error: "no ANTHROPIC_API_KEY" };
   const model = Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-5";
   const r = await fetch("https://api.anthropic.com/v1/messages", {
     method: "POST",
     headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
     body: JSON.stringify({
-      model, max_tokens: 3000,
+      model, max_tokens: 8000,
       system:
         "You are the training-plan adjuster inside a personal training app. You receive a rule-generated week skeleton plus what actually happened recently. Adjust the skeleton ONLY where the data justifies it (missed key sessions → don't stack fatigue; strong compliance → keep the plan; a hard race soon → protect the taper). Keep every session_date within the same week, keep 3–9 sessions, keep total minutes within ±20% of the skeleton, and keep sports within: run, ride, swim, strength, hyrox, brick, mobility, rest, other. Sharpen 'detail' into concrete, personal prescriptions. Respond with ONLY a JSON object: {\"focus\": string, \"sessions\": [{\"session_date\",\"sport\",\"title\",\"detail\",\"planned_minutes\",\"planned_km\",\"intensity\"}]} — no markdown fences, no commentary.",
       messages: [{ role: "user", content: JSON.stringify({ context: ctx, skeleton: sessions }) }],
     }),
   });
-  if (!r.ok) return null;
+  if (!r.ok) {
+    const errBody = await r.text().catch(() => "");
+    return { error: `Anthropic HTTP ${r.status}: ${errBody.slice(0, 300)}` };
+  }
   const data = await r.json();
-  const text = data.content?.[0]?.text ?? "";
+  // The model may emit thinking blocks before the text block — join all text.
+  const text = ((data.content ?? []) as { type: string; text?: string }[])
+    .filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
   try {
     const parsed = JSON.parse(text.replace(/^```json?\s*|```\s*$/g, ""));
     const ok = Array.isArray(parsed.sessions) && parsed.sessions.length >= 3 && parsed.sessions.length <= 9 &&
       parsed.sessions.every((x: Sess) =>
         typeof x.session_date === "string" && typeof x.title === "string" &&
         ["run", "ride", "swim", "strength", "hyrox", "brick", "mobility", "rest", "other"].includes(x.sport));
-    if (!ok) return null;
+    if (!ok) return { error: `Claude output failed validation: ${text.slice(0, 200)}` };
     return { sessions: parsed.sessions, focus: typeof parsed.focus === "string" ? parsed.focus : undefined };
-  } catch { return null; }
+  } catch {
+    return { error: `Claude output not JSON (stop: ${data.stop_reason}): ${text.slice(0, 200) || JSON.stringify(data.content ?? []).slice(0, 200)}` };
+  }
 }
 
 /* ---------------- main ---------------- */
@@ -232,6 +239,7 @@ Deno.serve(async (req) => {
     let sessions = skeleton(race?.race_type ?? "other", block, weekStart, runKm, longDay, daysPerWeek);
     let focus = BLOCK_FOCUS[block];
     let generatedBy = "rules";
+    let claudeError: string | null = null;
 
     if (body.use_claude !== false) {
       const { data: lastWeekSessions } = await svc.from("tr_planned_sessions")
@@ -244,7 +252,13 @@ Deno.serve(async (req) => {
         last_week: lastWeekSessions ?? [],
         recent_workouts: (recent ?? []).map((w) => ({ sport: w.sport, km: w.distance_km, at: w.started_at })),
       }, sessions);
-      if (adjusted) { sessions = adjusted.sessions; if (adjusted.focus) focus = adjusted.focus; generatedBy = "rules+claude"; }
+      if (adjusted.sessions) {
+        sessions = adjusted.sessions;
+        if (adjusted.focus) focus = adjusted.focus;
+        generatedBy = "rules+claude";
+      } else {
+        claudeError = adjusted.error ?? "unknown"; // week still ships, rules-only
+      }
     }
 
     const totalMin = sessions.reduce((a, s) => a + (s.planned_minutes ?? 0), 0);
@@ -284,7 +298,7 @@ Deno.serve(async (req) => {
     const { data: inserted, error: serr } = await svc.from("tr_planned_sessions").insert(rows).select();
     if (serr) return json({ error: serr.message }, 500);
 
-    return json({ week, sessions: inserted, calendar_pushed: pushed, generated_by: generatedBy });
+    return json({ week, sessions: inserted, calendar_pushed: pushed, generated_by: generatedBy, claude_error: claudeError });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
