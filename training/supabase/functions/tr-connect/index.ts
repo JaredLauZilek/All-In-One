@@ -5,6 +5,9 @@
 //                       so the browser can build the authorize URL)
 //   strava_exchange   → {code} from Strava's OAuth redirect → tokens into tr_tokens
 //   strava_disconnect → drop the Strava token row
+//   telegram_register → call Telegram setWebhook using the two Telegram secrets
+//                       (so the bot token never has to leave Supabase); accepts
+//                       the project anon JWT since it touches no user data
 //
 // Deployed verify_jwt: true — caller is always the logged-in browser session.
 // Secrets used (all optional except for their own feature): STRAVA_CLIENT_ID,
@@ -28,10 +31,27 @@ Deno.serve(async (req) => {
     const jwt = (req.headers.get("Authorization") ?? "").replace(/^Bearer /, "");
     const { data: userData } = await svc.auth.getUser(jwt);
     const user = userData?.user;
-    if (!user) return json({ error: "Not signed in" }, 401);
 
     const body = await req.json().catch(() => ({}));
     const op = body.op ?? "status";
+
+    if (op === "telegram_register") {
+      // No user needed — reads only the Telegram env secrets, writes nothing.
+      const bot = Deno.env.get("TELEGRAM_BOT_TOKEN"), secret = Deno.env.get("TELEGRAM_WEBHOOK_SECRET");
+      if (!bot || !secret) {
+        return json({ error: "Set TELEGRAM_BOT_TOKEN and TELEGRAM_WEBHOOK_SECRET secrets first" }, 400);
+      }
+      const hook = `${Deno.env.get("SUPABASE_URL")}/functions/v1/tr-telegram-webhook`;
+      const set = await (await fetch(`https://api.telegram.org/bot${bot}/setWebhook`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ url: hook, secret_token: secret, allowed_updates: ["message", "edited_message"] }),
+      })).json();
+      const info = await (await fetch(`https://api.telegram.org/bot${bot}/getWebhookInfo`)).json();
+      const me = await (await fetch(`https://api.telegram.org/bot${bot}/getMe`)).json();
+      return json({ set, webhook: info.result ?? info, bot_username: me.result?.username ?? null });
+    }
+
+    if (!user) return json({ error: "Not signed in" }, 401);
 
     if (op === "status") {
       const [{ data: settings }, { data: stravaTok }] = await Promise.all([
