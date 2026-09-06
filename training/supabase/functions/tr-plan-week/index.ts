@@ -242,15 +242,27 @@ Deno.serve(async (req) => {
     let claudeError: string | null = null;
 
     if (body.use_claude !== false) {
-      const { data: lastWeekSessions } = await svc.from("tr_planned_sessions")
-        .select("session_date, sport, title, status").eq("user_id", userId)
-        .gte("session_date", iso(addDays(weekStart, -7))).lt("session_date", weekStartStr);
+      const [{ data: lastWeekSessions }, { data: wellness }] = await Promise.all([
+        svc.from("tr_planned_sessions")
+          .select("session_date, sport, title, status").eq("user_id", userId)
+          .gte("session_date", iso(addDays(weekStart, -7))).lt("session_date", weekStartStr),
+        svc.from("tr_wellness")
+          .select("day, resting_hr, hrv, sleep_secs, sleep_score").eq("user_id", userId)
+          .order("day", { ascending: false }).limit(14),
+      ]);
       const adjusted = await claudeAdjust({
         week_start: weekStartStr, block, weeks_to_race: weeksOut,
         race: race ? { name: race.name, type: race.race_type, date: race.race_date } : null,
         run_km_target: runKm, weekly_hours: settings?.weekly_hours ?? 8,
         last_week: lastWeekSessions ?? [],
         recent_workouts: (recent ?? []).map((w) => ({ sport: w.sport, km: w.distance_km, at: w.started_at })),
+        // Garmin wellness via intervals.icu — HRV/resting-HR trends and short
+        // sleep justify easing a week; empty when the feed isn't connected.
+        recent_wellness: (wellness ?? []).map((w) => ({
+          day: w.day, resting_hr: w.resting_hr, hrv: w.hrv,
+          sleep_h: w.sleep_secs != null ? Math.round(Number(w.sleep_secs) / 360) / 10 : null,
+          sleep_score: w.sleep_score,
+        })),
       }, sessions);
       if (adjusted.sessions) {
         sessions = adjusted.sessions;

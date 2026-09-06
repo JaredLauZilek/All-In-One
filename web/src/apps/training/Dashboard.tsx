@@ -10,7 +10,7 @@ import { RefreshCw, Sparkles, Check, X, CalendarDays } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, StatusBadge, EmptyState, cn } from "../../components/ui";
 import {
-  type TrPlanWeek, type TrRace, type TrSession, type TrWorkout,
+  type TrPlanWeek, type TrRace, type TrSession, type TrWorkout, type TrWellness,
   RACE_TYPES, SPORT_EMOJI, BLOCK_LABELS, DAY_NAMES,
   mondayOf, addDaysISO, daysUntil, useTrSettings,
 } from "./lib";
@@ -20,7 +20,7 @@ function useWeekData(weekStart: string) {
     queryKey: ["tr-week", weekStart],
     queryFn: async () => {
       const weekEnd = addDaysISO(weekStart, 6);
-      const [race, week, sessions, weeks, workouts] = await Promise.all([
+      const [race, week, sessions, weeks, workouts, wellness] = await Promise.all([
         supabase.from("tr_races").select("*").eq("status", "upcoming")
           .order("race_date", { ascending: true, nullsFirst: false }).limit(1).maybeSingle(),
         supabase.from("tr_plan_weeks").select("*").eq("week_start", weekStart).maybeSingle(),
@@ -28,6 +28,7 @@ function useWeekData(weekStart: string) {
           .gte("session_date", weekStart).lte("session_date", weekEnd).order("session_date"),
         supabase.from("tr_plan_weeks").select("*").order("week_start"),
         supabase.from("tr_workouts").select("*").order("started_at", { ascending: false }).limit(60),
+        supabase.from("tr_wellness").select("*").order("day", { ascending: false }).limit(14),
       ]);
       return {
         race: race.data as TrRace | null,
@@ -35,6 +36,7 @@ function useWeekData(weekStart: string) {
         sessions: (sessions.data ?? []) as TrSession[],
         allWeeks: (weeks.data ?? []) as TrPlanWeek[],
         workouts: (workouts.data ?? []) as TrWorkout[],
+        wellness: (wellness.data ?? []) as TrWellness[],
       };
     },
   });
@@ -51,7 +53,7 @@ export default function Dashboard() {
     mutationFn: async () => {
       const { data: res, error } = await supabase.functions.invoke("tr-sync", { body: {} });
       if (error) throw error;
-      return res as { intervals: number; strava: number; hevy: number; matched: number; errors: string[] };
+      return res as { intervals: number; wellness: number; strava: number; hevy: number; matched: number; errors: string[] };
     },
     onSuccess: invalidate,
   });
@@ -130,7 +132,7 @@ export default function Dashboard() {
             )}
             {sync.isSuccess && (
               <p className="mx-5 mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                Synced — intervals.icu {sync.data.intervals ?? 0} · Hevy {sync.data.hevy} · matched {sync.data.matched}
+                Synced — intervals.icu {sync.data.intervals ?? 0} · wellness {sync.data.wellness ?? 0} d · Hevy {sync.data.hevy} · matched {sync.data.matched}
                 {sync.data.errors?.length ? ` · ⚠ ${sync.data.errors.join("; ")}` : ""}
               </p>
             )}
@@ -154,6 +156,7 @@ export default function Dashboard() {
         </div>
 
         <div className="space-y-6">
+          <RecoveryCard wellness={data?.wellness ?? []} />
           <ProgressionCard weeks={data?.allWeeks ?? []} workouts={data?.workouts ?? []} currentWeek={weekStart} />
           <RecentWorkoutsCard workouts={(data?.workouts ?? []).slice(0, 6)} />
         </div>
@@ -240,6 +243,38 @@ function SessionRow({ s, onDone, onSkip }: { s: TrSession; onDone: () => void; o
         )
       )}
     </li>
+  );
+}
+
+/* ---------------- recovery (Garmin wellness via intervals.icu) ---------------- */
+function RecoveryCard({ wellness }: { wellness: TrWellness[] }) {
+  if (wellness.length === 0) return null; // feed not connected / no data yet
+  const latest = wellness[0];
+  const avg = (pick: (w: TrWellness) => number | null) => {
+    const vals = wellness.map(pick).filter((v): v is number => v != null).map(Number);
+    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
+  };
+  const avgHrv = avg((w) => w.hrv), avgRhr = avg((w) => w.resting_hr);
+  const metric = (label: string, value: string, tone?: "good" | "bad") => (
+    <div>
+      <p className="text-[11px] font-medium text-slate-500">{label}</p>
+      <p className={cn("mt-0.5 font-mono text-lg font-semibold",
+        tone === "good" ? "text-emerald-600" : tone === "bad" ? "text-red-600" : "text-slate-900")}>{value}</p>
+    </div>
+  );
+  const hrvTone = latest.hrv != null && avgHrv != null
+    ? (Number(latest.hrv) >= avgHrv * 0.95 ? "good" : "bad") : undefined;
+  const rhrTone = latest.resting_hr != null && avgRhr != null
+    ? (Number(latest.resting_hr) <= avgRhr * 1.05 ? "good" : "bad") : undefined;
+  return (
+    <Card>
+      <CardHeader title="Recovery" subtitle={`Garmin wellness · latest ${latest.day} (vs 14-day avg)`} />
+      <div className="grid grid-cols-3 gap-3 px-5 py-4">
+        {metric("HRV", latest.hrv != null ? `${Math.round(Number(latest.hrv))} ms` : "—", hrvTone)}
+        {metric("Resting HR", latest.resting_hr != null ? `${Math.round(Number(latest.resting_hr))} bpm` : "—", rhrTone)}
+        {metric("Sleep", latest.sleep_secs != null ? `${(Number(latest.sleep_secs) / 3600).toFixed(1)} h` : "—")}
+      </div>
+    </Card>
   );
 }
 

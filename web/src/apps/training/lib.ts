@@ -28,6 +28,11 @@ export interface TrWorkout {
   avg_hr: number | null; data: Record<string, unknown>;
 }
 
+export interface TrWellness {
+  day: string; resting_hr: number | null; hrv: number | null;
+  sleep_secs: number | null; sleep_score: number | null; weight_kg: number | null;
+}
+
 export interface TrSettings {
   user_id: string; telegram_chat_id: string | null; pairing_code: string;
   hevy_api_key: string | null; intervals_athlete_id: string | null; intervals_api_key: string | null;

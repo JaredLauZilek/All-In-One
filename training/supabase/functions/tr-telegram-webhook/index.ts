@@ -71,13 +71,15 @@ async function askClaude(userId: string, text: string): Promise<string> {
   if (!key) return "I can only do commands right now (/today /week /sync) — the ANTHROPIC_API_KEY secret isn't set, so free-form chat is off.";
 
   const today = mytNow(); const wk = monday(today);
-  const [{ data: races }, { data: sessions }, { data: workouts }, { data: history }] = await Promise.all([
+  const [{ data: races }, { data: sessions }, { data: workouts }, { data: history }, { data: wellness }] = await Promise.all([
     svc.from("tr_races").select("name, race_type, race_date, priority").eq("user_id", userId).eq("status", "upcoming"),
     svc.from("tr_planned_sessions").select("id, session_date, sport, title, detail, planned_minutes, planned_km, status")
       .eq("user_id", userId).gte("session_date", iso(wk)).lte("session_date", iso(addDays(wk, 13))).order("session_date"),
     svc.from("tr_workouts").select("sport, name, started_at, duration_min, distance_km")
       .eq("user_id", userId).order("started_at", { ascending: false }).limit(10),
     svc.from("tr_chat_log").select("role, content").eq("user_id", userId).order("created_at", { ascending: false }).limit(12),
+    svc.from("tr_wellness").select("day, resting_hr, hrv, sleep_secs, sleep_score")
+      .eq("user_id", userId).order("day", { ascending: false }).limit(7),
   ]);
 
   const r = await fetch("https://api.anthropic.com/v1/messages", {
@@ -95,6 +97,11 @@ async function askClaude(userId: string, text: string): Promise<string> {
           content: JSON.stringify({
             message: text,
             races, this_and_next_week_sessions: sessions, recent_workouts: workouts,
+            recent_wellness: (wellness ?? []).map((w) => ({
+              day: w.day, resting_hr: w.resting_hr, hrv: w.hrv,
+              sleep_h: w.sleep_secs != null ? Math.round(Number(w.sleep_secs) / 360) / 10 : null,
+              sleep_score: w.sleep_score,
+            })),
           }),
         },
       ],
@@ -103,12 +110,13 @@ async function askClaude(userId: string, text: string): Promise<string> {
   if (!r.ok) return `Claude call failed (HTTP ${r.status}) — try again in a bit.`;
   const data = await r.json();
   // The model may emit thinking blocks before the text block — join all text.
-  const text = ((data.content ?? []) as { type: string; text?: string }[])
+  // (text2: `text` is already this function's message parameter.)
+  const text2 = ((data.content ?? []) as { type: string; text?: string }[])
     .filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
   let parsed: { reply?: string; actions?: Action[] };
   try {
-    parsed = JSON.parse(text.replace(/^```json?\s*|```\s*$/g, ""));
-  } catch { return text || "Hmm, I glitched — try again."; }
+    parsed = JSON.parse(text2.replace(/^```json?\s*|```\s*$/g, ""));
+  } catch { return text2 || "Hmm, I glitched — try again."; }
 
   const applied: string[] = [];
   const actions = (parsed.actions ?? []).slice(0, 10);
@@ -191,7 +199,7 @@ Deno.serve(async (req) => {
 
     /* built-in commands (fast, no Claude) */
     if (/^\/(start|help)/.test(text)) {
-      await send(chatId, "Your training bot 🏋️\n\n/today — today's session(s)\n/week — this week's plan\n/sync — pull latest Strava + Hevy\n\nOr just talk: \"skip tomorrow's intervals, knee is sore\" / \"how's my week going?\" — I'll adjust the plan and your calendar.");
+      await send(chatId, "Your training bot 🏋️\n\n/today — today's session(s)\n/week — this week's plan\n/sync — pull latest intervals.icu + Hevy\n\nOr just talk: \"skip tomorrow's intervals, knee is sore\" / \"how's my week going?\" — I'll adjust the plan and your calendar.");
       return ok();
     }
     if (/^\/today/.test(text)) {
@@ -222,7 +230,7 @@ Deno.serve(async (req) => {
       });
       const res = await r.json().catch(() => ({}));
       await send(chatId, r.ok
-        ? `Synced ✅ Strava: ${res.strava ?? 0} · Hevy: ${res.hevy ?? 0} · matched to plan: ${res.matched ?? 0}${res.errors?.length ? `\n⚠️ ${res.errors.join("; ")}` : ""}`
+        ? `Synced ✅ intervals.icu: ${res.intervals ?? 0} · wellness: ${res.wellness ?? 0} days · Hevy: ${res.hevy ?? 0} · matched to plan: ${res.matched ?? 0}${res.errors?.length ? `\n⚠️ ${res.errors.join("; ")}` : ""}`
         : "Sync failed — check the Settings page connections.");
       return ok();
     }

@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
     /* ---------- intervals.icu (Garmin feed) ---------- */
     const { data: settings } = await svc.from("tr_settings")
       .select("hevy_api_key, intervals_athlete_id, intervals_api_key").eq("user_id", userId).maybeSingle();
-    let intervalsCount = 0;
+    let intervalsCount = 0, wellnessCount = 0;
     if (settings?.intervals_athlete_id && settings?.intervals_api_key) {
       try {
         // Basic auth with literal username "API_KEY" — intervals.icu convention.
@@ -144,6 +144,39 @@ Deno.serve(async (req) => {
         }
         intervalsCount = rows.length;
       } catch (e) { errors.push(`intervals.icu: ${String(e)}`); }
+
+      /* wellness (Garmin stream): resting HR, HRV, sleep, weight — one row/day */
+      try {
+        const auth = "Basic " + btoa(`API_KEY:${settings.intervals_api_key}`);
+        const newest = new Date().toISOString().slice(0, 10);
+        const r = await fetch(
+          `https://intervals.icu/api/v1/athlete/${encodeURIComponent(settings.intervals_athlete_id.trim())}/wellness?oldest=${since.toISOString().slice(0, 10)}&newest=${newest}`,
+          { headers: { Authorization: auth } },
+        );
+        if (!r.ok) throw new Error(`HTTP ${r.status}`);
+        const days = await r.json();
+        if (Array.isArray(days)) {
+          const rows = days
+            .filter((d: Record<string, unknown>) => /^\d{4}-\d{2}-\d{2}$/.test(String(d.id)))
+            .map((d: Record<string, unknown>) => ({
+              user_id: userId, day: d.id,
+              resting_hr: d.restingHR ?? null,
+              hrv: d.hrv ?? null,
+              sleep_secs: d.sleepSecs ?? null,
+              sleep_score: d.sleepScore ?? d.sleepQuality ?? null,
+              weight_kg: d.weight ?? null,
+              data: { spO2: d.spO2 ?? null, fatigue: d.fatigue ?? null, soreness: d.soreness ?? null, hrvSDNN: d.hrvSDNN ?? null },
+              updated_at: new Date().toISOString(),
+            }))
+            // keep only days that carry at least one real signal
+            .filter((w) => w.resting_hr != null || w.hrv != null || w.sleep_secs != null || w.weight_kg != null);
+          if (rows.length) {
+            const { error } = await svc.from("tr_wellness").upsert(rows, { onConflict: "user_id,day" });
+            if (error) throw new Error(error.message);
+          }
+          wellnessCount = rows.length;
+        }
+      } catch (e) { errors.push(`wellness: ${String(e)}`); }
     }
 
     /* ---------- Hevy ---------- */
@@ -209,7 +242,7 @@ Deno.serve(async (req) => {
     }
 
     await svc.from("tr_settings").update({ last_synced_at: new Date().toISOString() }).eq("user_id", userId);
-    return json({ intervals: intervalsCount, strava: stravaCount, hevy: hevyCount, matched, errors });
+    return json({ intervals: intervalsCount, wellness: wellnessCount, strava: stravaCount, hevy: hevyCount, matched, errors });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

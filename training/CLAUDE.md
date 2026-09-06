@@ -19,6 +19,11 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   `tr_settings.intervals_athlete_id/_api_key`, added 2026-09-06 after Strava gated its
   API behind a paid Strava subscription — the Strava OAuth path remains in the code,
   dormant) and Hevy (lifts, full set/rep detail), auto-matched to planned sessions.
+- **Daily wellness** (resting HR, HRV, sleep, weight) also comes from intervals.icu —
+  Garmin pushes its wellness stream there, so recovery-aware planning works WITHOUT
+  Apple Health after all (0003, `tr_wellness`, one row/day). tr-plan-week and the bot
+  feed the last 14/7 days to Claude; the dashboard shows a Recovery card. Verified
+  live 2026-09-06: 33 days of RHR, 19 with HRV, 18 with sleep.
 - **A Telegram bot** is the mid-week interface: /today /week /sync commands plus
   Claude-powered chat that can skip/move/update/add sessions (and mirrors those
   changes into Google Calendar). The dashboard is the once-a-week review tool.
