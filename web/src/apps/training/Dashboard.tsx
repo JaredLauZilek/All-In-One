@@ -51,7 +51,7 @@ export default function Dashboard() {
     mutationFn: async () => {
       const { data: res, error } = await supabase.functions.invoke("tr-sync", { body: {} });
       if (error) throw error;
-      return res as { strava: number; hevy: number; matched: number; errors: string[] };
+      return res as { intervals: number; strava: number; hevy: number; matched: number; errors: string[] };
     },
     onSuccess: invalidate,
   });
@@ -130,7 +130,7 @@ export default function Dashboard() {
             )}
             {sync.isSuccess && (
               <p className="mx-5 mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                Synced — Strava {sync.data.strava} · Hevy {sync.data.hevy} · matched {sync.data.matched}
+                Synced — intervals.icu {sync.data.intervals ?? 0} · Hevy {sync.data.hevy} · matched {sync.data.matched}
                 {sync.data.errors?.length ? ` · ⚠ ${sync.data.errors.join("; ")}` : ""}
               </p>
             )}
@@ -295,10 +295,10 @@ function ProgressionCard({ weeks, workouts, currentWeek }: {
 function RecentWorkoutsCard({ workouts }: { workouts: TrWorkout[] }) {
   return (
     <Card>
-      <CardHeader title="Recent workouts" subtitle="Synced from Strava + Hevy" />
+      <CardHeader title="Recent workouts" subtitle="Synced from intervals.icu + Hevy" />
       {workouts.length === 0 ? (
         <p className="px-5 py-6 text-center text-sm text-slate-400">
-          Nothing yet — connect Strava/Hevy in Settings and hit Sync.
+          Nothing yet — connect intervals.icu/Hevy in Settings and hit Sync.
         </p>
       ) : (
         <ul className="divide-y divide-slate-100">

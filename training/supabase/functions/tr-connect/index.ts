@@ -55,10 +55,14 @@ Deno.serve(async (req) => {
 
     if (op === "status") {
       const [{ data: settings }, { data: stravaTok }] = await Promise.all([
-        svc.from("tr_settings").select("hevy_api_key, telegram_chat_id, pairing_code, last_synced_at").eq("user_id", user.id).maybeSingle(),
+        svc.from("tr_settings").select("hevy_api_key, telegram_chat_id, pairing_code, last_synced_at, intervals_athlete_id, intervals_api_key").eq("user_id", user.id).maybeSingle(),
         svc.from("tr_tokens").select("meta, updated_at").eq("user_id", user.id).eq("provider", "strava").maybeSingle(),
       ]);
       return json({
+        intervals: {
+          configured: !!(settings?.intervals_athlete_id && settings?.intervals_api_key),
+          athlete_id: settings?.intervals_athlete_id ?? null,
+        },
         strava: {
           app_configured: !!(Deno.env.get("STRAVA_CLIENT_ID") && Deno.env.get("STRAVA_CLIENT_SECRET")),
           client_id: Deno.env.get("STRAVA_CLIENT_ID") ?? null,

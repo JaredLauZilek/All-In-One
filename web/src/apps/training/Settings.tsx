@@ -13,6 +13,7 @@ import { Button, Card, CardHeader, Input, Select, DataRow, cn } from "../../comp
 import { useTrSettings } from "./lib";
 
 interface ConnStatus {
+  intervals: { configured: boolean; athlete_id: string | null };
   strava: { app_configured: boolean; client_id: string | null; connected: boolean; athlete: string | null };
   hevy: { key_set: boolean };
   telegram: { bot_configured: boolean; linked: boolean; pairing_code: string | null };
@@ -82,7 +83,11 @@ export default function Settings() {
       <Card>
         <CardHeader title="Connections" subtitle="Each integration works independently — missing ones are simply skipped" />
         <ul className="divide-y divide-slate-100">
-          <ConnRow ok={!!status?.strava.connected} name="Strava" what="runs, rides, swims (via Garmin → Strava)">
+          <ConnRow ok={!!status?.intervals.configured} name="intervals.icu" what="runs, rides, swims — free Garmin feed (Garmin → intervals.icu → here)">
+            <IntervalsInputs configured={!!status?.intervals.configured} athleteId={status?.intervals.athlete_id ?? null} />
+          </ConnRow>
+
+          <ConnRow ok={!!status?.strava.connected} name="Strava" what="dormant — Strava's API now requires a paid Strava subscription; intervals.icu covers this">
             {status?.strava.app_configured ? (
               status.strava.connected ? (
                 <div className="flex items-center gap-2">
@@ -94,7 +99,7 @@ export default function Settings() {
               )
             ) : (
               <span className="text-right text-[11px] leading-tight text-slate-400">
-                Create an API app at strava.com/settings/api, then set the STRAVA_CLIENT_ID + STRAVA_CLIENT_SECRET edge-function secrets
+                Only worth wiring up if you ever subscribe to Strava
               </span>
             )}
           </ConnRow>
@@ -160,6 +165,43 @@ function ConnRow({ ok, name, what, children }: {
       </div>
       <div className="max-w-[55%] shrink-0">{children}</div>
     </li>
+  );
+}
+
+function IntervalsInputs({ configured, athleteId }: { configured: boolean; athleteId: string | null }) {
+  const qc = useQueryClient();
+  const [id, setId] = useState("");
+  const [key, setKey] = useState("");
+  const save = useMutation({
+    mutationFn: async () => {
+      const uid = (await supabase.auth.getUser()).data.user!.id;
+      const { error } = await supabase.from("tr_settings").update({
+        intervals_athlete_id: id.trim() || null,
+        intervals_api_key: key.trim() || null,
+        updated_at: new Date().toISOString(),
+      }).eq("user_id", uid);
+      if (error) throw error;
+    },
+    onSuccess: () => { setId(""); setKey(""); qc.invalidateQueries({ queryKey: ["tr-conn-status"] }); },
+  });
+  if (configured) {
+    return (
+      <div className="flex items-center gap-2">
+        <span className="font-mono text-xs text-emerald-600">{athleteId}</span>
+        <Button variant="ghost" className="px-2 py-1 text-xs"
+          onClick={() => { setId(""); setKey(""); save.mutate(); }}>Disconnect</Button>
+      </div>
+    );
+  }
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-2">
+      <Input placeholder="Athlete ID (i1234567)" value={id} onChange={(e) => setId(e.target.value)}
+        className="w-36 px-2.5 py-1.5 font-mono text-xs" />
+      <Input type="password" placeholder="API key" value={key} onChange={(e) => setKey(e.target.value)}
+        className="w-32 px-2.5 py-1.5 text-xs" />
+      <Button variant="secondary" className="px-2.5 py-1.5 text-xs" onClick={() => save.mutate()}
+        loading={save.isPending} disabled={!id.trim() || !key.trim()}>Save</Button>
+    </div>
   );
 }
 
@@ -246,7 +288,7 @@ function PrefsCard() {
         </label>
       </div>
       <div className="border-t border-slate-100 px-5 py-3">
-        <DataRow label="Data note" value="No sleep/HRV source connected (Strava+Hevy only) — recovery advice keys off completed load, not biometrics" />
+        <DataRow label="Data note" value="No sleep/HRV source connected (intervals.icu + Hevy only) — recovery advice keys off completed load, not biometrics" />
       </div>
     </Card>
   );

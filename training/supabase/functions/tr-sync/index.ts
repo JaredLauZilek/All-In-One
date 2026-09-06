@@ -1,4 +1,5 @@
-// tr-sync — pull actual workouts from Strava + Hevy into tr_workouts, then
+// tr-sync — pull actual workouts from intervals.icu (Garmin feed), Strava
+// (dormant — API now needs a paid Strava sub) and Hevy into tr_workouts, then
 // auto-match them against planned sessions (same MYT day + compatible sport)
 // and mark those sessions done.
 //
@@ -23,10 +24,11 @@ const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_S
 const mytDate = (iso: string | Date) =>
   new Date(new Date(iso).getTime() + 8 * 3600_000).toISOString().slice(0, 10);
 
-const STRAVA_SPORT: Record<string, string> = {
+// Shared by Strava and intervals.icu — both use the same type vocabulary.
+const SPORT_MAP: Record<string, string> = {
   Run: "run", TrailRun: "run", VirtualRun: "run",
   Ride: "ride", VirtualRide: "ride", GravelRide: "ride", MountainBikeRide: "ride", EBikeRide: "ride",
-  Swim: "swim",
+  Swim: "swim", OpenWaterSwim: "swim",
   WeightTraining: "strength", Crossfit: "strength", Workout: "other",
 };
 // A workout of sport X can complete a planned session of these sports.
@@ -90,7 +92,7 @@ Deno.serve(async (req) => {
           if (!Array.isArray(acts) || acts.length === 0) break;
           const rows = acts.map((a: Record<string, unknown>) => ({
             user_id: userId, source: "strava", external_id: String(a.id),
-            sport: STRAVA_SPORT[String(a.sport_type ?? a.type)] ?? "other",
+            sport: SPORT_MAP[String(a.sport_type ?? a.type)] ?? "other",
             name: a.name ?? null, started_at: a.start_date,
             duration_min: a.moving_time ? Math.round(Number(a.moving_time) / 6) / 10 : null,
             distance_km: a.distance ? Math.round(Number(a.distance) / 10) / 100 : null,
@@ -105,8 +107,46 @@ Deno.serve(async (req) => {
       } catch (e) { errors.push(`Strava: ${String(e)}`); }
     }
 
+    /* ---------- intervals.icu (Garmin feed) ---------- */
+    const { data: settings } = await svc.from("tr_settings")
+      .select("hevy_api_key, intervals_athlete_id, intervals_api_key").eq("user_id", userId).maybeSingle();
+    let intervalsCount = 0;
+    if (settings?.intervals_athlete_id && settings?.intervals_api_key) {
+      try {
+        // Basic auth with literal username "API_KEY" — intervals.icu convention.
+        const auth = "Basic " + btoa(`API_KEY:${settings.intervals_api_key}`);
+        const r = await fetch(
+          `https://intervals.icu/api/v1/athlete/${encodeURIComponent(settings.intervals_athlete_id.trim())}/activities?oldest=${since.toISOString().slice(0, 10)}`,
+          { headers: { Authorization: auth } },
+        );
+        if (!r.ok) throw new Error(`HTTP ${r.status} (check athlete ID + API key)`);
+        const acts = await r.json();
+        if (!Array.isArray(acts)) throw new Error("unexpected response shape");
+        const rows = acts.map((a: Record<string, unknown>) => {
+          // start_date_local has no offset — Jared trains in MYT (no DST), pin it.
+          const raw = String(a.start_date ?? a.start_date_local ?? "");
+          const started = /Z|[+-]\d\d:?\d\d$/.test(raw) ? new Date(raw) : new Date(raw + "+08:00");
+          const secs = Number(a.moving_time ?? a.elapsed_time) || null;
+          return {
+            user_id: userId, source: "intervals", external_id: String(a.id),
+            sport: SPORT_MAP[String(a.type)] ?? "other",
+            name: a.name ?? null, started_at: started.toISOString(),
+            duration_min: secs ? Math.round(secs / 6) / 10 : null,
+            distance_km: a.distance ? Math.round(Number(a.distance) / 10) / 100 : null,
+            avg_hr: a.average_heartrate ?? a.icu_average_hr ?? null,
+            elev_m: a.total_elevation_gain ?? a.icu_elevation_gain ?? null,
+            data: { type: a.type, load: a.icu_training_load ?? null, source_ids: a.source ?? null },
+          };
+        }).filter((row) => !Number.isNaN(new Date(row.started_at).getTime()));
+        if (rows.length) {
+          const { error } = await svc.from("tr_workouts").upsert(rows, { onConflict: "user_id,source,external_id" });
+          if (error) throw new Error(error.message);
+        }
+        intervalsCount = rows.length;
+      } catch (e) { errors.push(`intervals.icu: ${String(e)}`); }
+    }
+
     /* ---------- Hevy ---------- */
-    const { data: settings } = await svc.from("tr_settings").select("hevy_api_key").eq("user_id", userId).maybeSingle();
     if (settings?.hevy_api_key) {
       try {
         for (let page = 1; page <= 5; page++) {
@@ -169,7 +209,7 @@ Deno.serve(async (req) => {
     }
 
     await svc.from("tr_settings").update({ last_synced_at: new Date().toISOString() }).eq("user_id", userId);
-    return json({ strava: stravaCount, hevy: hevyCount, matched, errors });
+    return json({ intervals: intervalsCount, strava: stravaCount, hevy: hevyCount, matched, errors });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
