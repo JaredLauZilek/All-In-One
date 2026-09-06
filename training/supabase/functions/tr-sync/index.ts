@@ -127,6 +127,16 @@ Deno.serve(async (req) => {
           const raw = String(a.start_date ?? a.start_date_local ?? "");
           const started = /Z|[+-]\d\d:?\d\d$/.test(raw) ? new Date(raw) : new Date(raw + "+08:00");
           const secs = Number(a.moving_time ?? a.elapsed_time) || null;
+          // Keep a compact copy of the whole activity: scalars + short arrays
+          // (HR-zone seconds, etc.), nulls and nested objects dropped. The
+          // Activities tab reads steps/cadence/zone-times out of this without
+          // the schema having to chase intervals.icu's field names.
+          const detail: Record<string, unknown> = {};
+          for (const [k, v] of Object.entries(a)) {
+            if (v == null || (typeof v === "object" && !Array.isArray(v))) continue;
+            if (Array.isArray(v) && v.length > 12) continue;
+            detail[k] = v;
+          }
           return {
             user_id: userId, source: "intervals", external_id: String(a.id),
             sport: SPORT_MAP[String(a.type)] ?? "other",
@@ -135,7 +145,7 @@ Deno.serve(async (req) => {
             distance_km: a.distance ? Math.round(Number(a.distance) / 10) / 100 : null,
             avg_hr: a.average_heartrate ?? a.icu_average_hr ?? null,
             elev_m: a.total_elevation_gain ?? a.icu_elevation_gain ?? null,
-            data: { type: a.type, load: a.icu_training_load ?? null, source_ids: a.source ?? null },
+            data: detail,
           };
         }).filter((row) => !Number.isNaN(new Date(row.started_at).getTime()));
         if (rows.length) {

@@ -12,7 +12,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import {
   Boxes, Home, LogOut, Server, LineChart, CandlestickChart, Dumbbell,
   Gauge, Newspaper, SlidersHorizontal, Crosshair, NotebookPen, ChevronDown, Sun, Moon,
-  CalendarDays, Trophy,
+  CalendarDays, Trophy, Activity,
 } from "lucide-react";
 import { supabase } from "../lib/supabase";
 import { cn } from "./ui";
@@ -44,6 +44,7 @@ const APPS = [
     icon: Dumbbell,
     items: [
       { to: "/training", label: "Week", icon: CalendarDays, end: true },
+      { to: "/training/activities", label: "Activities", icon: Activity },
       { to: "/training/races", label: "Races", icon: Trophy },
       { to: "/training/settings", label: "Settings", icon: SlidersHorizontal },
     ],

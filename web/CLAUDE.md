@@ -46,7 +46,7 @@ web/
     └── apps/
         ├── fin/       FinShell.tsx + Desk/News/Settings (.jsx, ported as-is)
         ├── evs/       Scanner/Trades/Settings (.tsx) + lib.ts
-        └── training/  Dashboard/Races/Settings (.tsx) + lib.ts
+        └── training/  Dashboard/Activities/Races/Settings (.tsx) + lib.ts
 ```
 
 - **`apps/fin/*.jsx` are plain JSX** (ported verbatim from the old app; `allowJs` is on,

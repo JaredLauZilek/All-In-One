@@ -19,6 +19,13 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   `tr_settings.intervals_athlete_id/_api_key`, added 2026-09-06 after Strava gated its
   API behind a paid Strava subscription — the Strava OAuth path remains in the code,
   dormant) and Hevy (lifts, full set/rep detail), auto-matched to planned sessions.
+- **Activities tab** (`/training/activities`, added 2026-09-06): intervals.icu-style
+  weekly grid — per activity: time/distance/avg HR/pace/estimated steps (run cadence
+  ×2 — Garmin sends no per-workout step total) + HR-zone mini-bars from
+  `data.icu_hr_zone_times` (tr-sync stores a compact copy of each intervals.icu
+  activity: scalars + arrays ≤12 long, nulls dropped); per week: gym vs cardio
+  totals with Δ% vs the previous week. Gym bucket = strength + 'other' (Garmin
+  logs Jared's gym sessions as generic "Workout").
 - **Daily wellness** (resting HR, HRV, sleep, weight) also comes from intervals.icu —
   Garmin pushes its wellness stream there, so recovery-aware planning works WITHOUT
   Apple Health after all (0003, `tr_wellness`, one row/day). tr-plan-week and the bot

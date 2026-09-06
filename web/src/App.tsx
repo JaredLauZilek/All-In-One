@@ -16,6 +16,7 @@ import EvsScanner from "./apps/evs/Scanner";
 import EvsTrades from "./apps/evs/Trades";
 import EvsSettings from "./apps/evs/Settings";
 import TrainingDashboard from "./apps/training/Dashboard";
+import TrainingActivities from "./apps/training/Activities";
 import TrainingRaces from "./apps/training/Races";
 import TrainingSettings from "./apps/training/Settings";
 import { Spinner } from "./components/ui";
@@ -64,6 +65,7 @@ export default function App() {
             <Route path="/evs/settings" element={<EvsSettings />} />
             {/* Training — pages self-fetch; plan/sync/bot run in tr-* edge fns */}
             <Route path="/training" element={<TrainingDashboard />} />
+            <Route path="/training/activities" element={<TrainingActivities />} />
             <Route path="/training/races" element={<TrainingRaces />} />
             <Route path="/training/settings" element={<TrainingSettings />} />
             <Route path="*" element={<Navigate to="/" replace />} />

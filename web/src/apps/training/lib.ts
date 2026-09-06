@@ -51,7 +51,10 @@ export const RACE_TYPES: Record<string, string> = {
 
 export const SPORT_EMOJI: Record<string, string> = {
   run: "🏃", ride: "🚴", swim: "🏊", strength: "🏋️", hyrox: "🔥",
-  brick: "🧱", mobility: "🧘", rest: "😴", other: "✅",
+  brick: "🧱", mobility: "🧘", rest: "😴",
+  // Garmin logs Jared's gym sessions as generic "Workout" → sport 'other';
+  // a ✅ here read like a done-tick, so it wears the gym emoji too.
+  other: "🏋️",
 };
 
 export const BLOCK_LABELS: Record<string, string> = {
