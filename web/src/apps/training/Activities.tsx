@@ -16,8 +16,14 @@ const WEEKS_SHOWN = 6;
 const CARDIO = ["run", "ride", "swim", "brick", "hyrox"];
 const GYM = ["strength", "other"];
 
-// Z1..Z5+ (intervals.icu sends 7 zones; 6+7 fold into the last bucket)
-const ZONE_COLORS = ["bg-slate-300", "bg-emerald-500", "bg-yellow-400", "bg-orange-500", "bg-red-500"];
+/* Zone bars mirror the athlete's ACTUAL intervals.icu HR-zone model — Jared's
+   profile has 7 zones (ceilings in data.icu_hr_zones), so folding to 5 both
+   exaggerated the red and mislabeled the middle (the bug he spotted).
+   Colors follow intervals.icu's convention: grey/blue/green/yellow/orange/red/purple. */
+const ZONE_COLORS_7 = ["bg-slate-300", "bg-sky-400", "bg-emerald-500", "bg-yellow-400", "bg-orange-500", "bg-red-500", "bg-purple-500"];
+const ZONE_COLORS_5 = ["bg-slate-300", "bg-sky-400", "bg-emerald-500", "bg-orange-500", "bg-red-500"];
+const zoneColor = (i: number, n: number) => (n <= 5 ? ZONE_COLORS_5 : ZONE_COLORS_7)[i] ?? "bg-red-500";
+const fmtSecs = (s: number) => (s >= 60 ? `${Math.round(s / 60)}m` : `${Math.round(s)}s`);
 
 const fmtDur = (min: number) => {
   const m = Math.round(min);
@@ -45,7 +51,7 @@ const rangeLabel = (weekStart: string) => {
     : `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]}`;
 };
 
-interface Detail { icu_hr_zone_times?: number[]; average_cadence?: number }
+interface Detail { icu_hr_zone_times?: number[]; icu_hr_zones?: number[]; average_cadence?: number }
 
 const workoutDay = (w: TrWorkout) => localISO(new Date(w.started_at));
 const stepsOf = (w: TrWorkout) => {
@@ -216,13 +222,20 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
 
 /* ---------------- one activity mini-card ---------------- */
 function ActivityCard({ w }: { w: TrWorkout }) {
-  const zonesRaw = (w.data as Detail).icu_hr_zone_times;
-  // fold Z6/Z7 into the 5th bucket; hide the graph when there's no HR time
-  const zones = Array.isArray(zonesRaw) && zonesRaw.length >= 5
-    ? [...zonesRaw.slice(0, 4), zonesRaw.slice(4).reduce((a, b) => a + (b || 0), 0)]
-    : null;
+  // One bar per zone, exactly as intervals.icu models them (no folding).
+  const zones = (() => {
+    const t = (w.data as Detail).icu_hr_zone_times;
+    return Array.isArray(t) && t.length >= 3 ? t : null;
+  })();
+  const ceilings = (w.data as Detail).icu_hr_zones;
   const zoneTotal = zones ? zones.reduce((a, b) => a + b, 0) : 0;
   const maxZone = zones ? Math.max(...zones) : 0;
+  const zoneTip = (i: number) => {
+    const time = fmtSecs(zones![i]);
+    if (!Array.isArray(ceilings) || ceilings.length !== zones!.length) return `Z${i + 1} · ${time}`;
+    const range = i === 0 ? `≤${ceilings[0]}` : `${ceilings[i - 1] + 1}–${ceilings[i]}`;
+    return `Z${i + 1} (${range} bpm) · ${time}`;
+  };
   const steps = stepsOf(w);
   const pace = w.sport === "run" && w.distance_km && w.duration_min
     ? Number(w.duration_min) / Number(w.distance_km) : null;
@@ -239,11 +252,12 @@ function ActivityCard({ w }: { w: TrWorkout }) {
         {steps != null && <p>≈{steps.toLocaleString()} steps</p>}
       </div>
       {zones && zoneTotal > 60 && (
-        <div className="mt-1.5 flex h-7 items-end gap-[3px]" title="Time in HR zones Z1–Z5+">
+        <div className="mt-1.5 flex h-7 items-end gap-[2px]">
           {zones.map((secs, i) => (
             <div
               key={i}
-              className={cn("flex-1 rounded-sm", secs > 0 ? ZONE_COLORS[i] : "bg-slate-200/70")}
+              title={zoneTip(i)}
+              className={cn("flex-1 rounded-sm", secs > 0 ? zoneColor(i, zones.length) : "bg-slate-200/70")}
               style={{ height: `${secs > 0 ? Math.max(6, (secs / (maxZone || 1)) * 26) : 3}px` }}
             />
           ))}
