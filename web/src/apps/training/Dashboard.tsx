@@ -373,7 +373,8 @@ function useNearest(count: number, L: number, R: number, W: number) {
 function WeeklyLineChart({ series, fmt, unit, lineClass, areaClass, dotClass }: {
   series: WeekPoint[]; fmt: (v: number) => string; unit: string; lineClass: string; areaClass: string; dotClass: string;
 }) {
-  const W = 320, H = 120, L = 10, R = 10, T = 16, B = 18;
+  // B leaves clear air between the area's baseline and the week labels.
+  const W = 320, H = 136, L = 10, R = 10, T = 16, B = 32;
   const { hover, onMove, clear } = useNearest(series.length, L, R, W);
   const max = Math.max(...series.map((s) => s.value), 1) * 1.15;
   const x = (i: number) => L + (i * (W - L - R)) / (series.length - 1);
@@ -397,7 +398,7 @@ function WeeklyLineChart({ series, fmt, unit, lineClass, areaClass, dotClass }: 
               <text x={x(i)} y={y(s.value) - 8} textAnchor={i === last ? "end" : "middle"} fontSize={9}
                 className="fill-slate-700 font-mono font-semibold">{fmt(s.value)}</text>
             )}
-            <text x={x(i)} y={H - 5} textAnchor={i === 0 ? "start" : i === last ? "end" : "middle"} fontSize={8}
+            <text x={x(i)} y={H - 6} textAnchor={i === 0 ? "start" : i === last ? "end" : "middle"} fontSize={8}
               className={cn("font-mono", i === last ? "fill-slate-700 font-semibold" : "fill-slate-400")}>{s.label}</text>
           </g>
         ))}
