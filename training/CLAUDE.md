@@ -60,9 +60,19 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   lift (±20 min) is hidden client-side (`dedupeGymShadows`, rows kept for HR data)
   so the same session isn't counted twice — overlap, not same-day: a same-day rule
   hid a morning Garmin walk on a Pull-day.
-- **Overview tab** (`/training`, the old "Week" tab): stat cards, race feature card,
-  this week's sessions with done/skip, Recovery, then (2026-09-07, replacing the
-  "Recent workouts" list) three cards: **Run km** and **Weight lifted** — weekly
+- **Overview tab** (`/training`, the old "Week" tab). Layout (2026-09-07, Jared:
+  "everything important was crammed into the right column"): **row 1** = a compact
+  dark race card (2 cols) + four half-width stat cards (6-col grid on xl); **rows 2+**
+  = an equal-weight card grid (3 cols on xl): **Week of …** (compact session list;
+  Sync button; click anywhere → the week popup), Recovery, Run km, Weight lifted,
+  Set count per muscle, Volume progression. **The week popup** (`WeekPlanModal`) is
+  where the week is structured: per day, sessions can be edited inline (day, sport,
+  km, minutes, title, detail), marked done/skipped/re-opened, deleted, or added
+  ("add session" under each day); Sync + Plan next week live in its header. Every
+  edit is an action to **`tr-plan-edit`** (see Architecture) — the single write path
+  for the plan, shared with the bot, which mirrors Google Calendar (insert on add /
+  re-open, patch on update / move, delete on skip / delete). The old big race
+  feature card + "Recent workouts" list are gone. The three chart cards: **Run km** and **Weight lifted** — weekly
   totals over the last 8 COMPLETED weeks as single-series line charts (hover/touch
   → crosshair + tooltip); the headline is LAST week's total with "this week so
   far" as a small note (Jared: a Monday reading "0 km" is discouraging), Δ vs the
@@ -128,6 +138,9 @@ web /training ──┬─ tables (owner RLS): tr_races, tr_plan_weeks, tr_plann
                 │                      tr_workouts, tr_settings, tr_chat_log
                 ├─ tr-connect     status / Strava OAuth code exchange / disconnect
                 ├─ tr-sync        Strava + Hevy → tr_workouts → match → mark done
+                ├─ tr-plan-edit   { actions } → the ONLY writer of tr_planned_sessions
+                │                 (set_status / move / update / add_session / delete)
+                │                 + Google Calendar mirror; used by the week popup
                 ├─ tr-activity    { id } → one run's downsampled HR/pace streams + device
                 │                 laps from intervals.icu, cached in tr_workouts.detail
                 │                 (≤600 points; { refresh: true } refetches)
@@ -137,7 +150,7 @@ Telegram ───────── tr-telegram-webhook  (verify_jwt FALSE, sec
 
 - **`tr_tokens`** (Strava OAuth tokens) has RLS ON with **no policies** — the browser
   can never read it; only edge functions (service role) touch it. Keep it that way.
-- `tr-connect`, `tr-sync`, `tr-plan-week`, `tr-activity` are `verify_jwt: true`. tr-sync/tr-plan-week/tr-activity
+- `tr-connect`, `tr-sync`, `tr-plan-week`, `tr-activity`, `tr-plan-edit` are `verify_jwt: true`. tr-sync/tr-plan-week/tr-activity/tr-plan-edit
   also accept the project **anon JWT** (valid JWT, no user) — they then fall back to
   the sole `tr_settings` row's owner. That's how the Telegram webhook triggers /sync.
 - `tr-telegram-webhook` is `verify_jwt: false`; security = the
@@ -210,7 +223,7 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
 ## Deploying
 
 - Edge functions: Supabase MCP `deploy_edge_function` (tr-connect / tr-sync /
-  tr-plan-week / tr-activity `verify_jwt: true`; **tr-telegram-webhook `verify_jwt: false`**);
+  tr-plan-week / tr-activity / tr-plan-edit `verify_jwt: true`; **tr-telegram-webhook `verify_jwt: false`**);
   `supabase/functions/` here is the source mirror.
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
   2026-09-05; 0007 `custom_name`, 0008 `tr_wellness.steps`, 0009 `tr_workouts.detail`,
