@@ -52,10 +52,20 @@ const rangeLabel = (weekStart: string) => {
     : `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]}`;
 };
 
+interface HevySet { weight_kg?: number | null; reps?: number | null; type?: string }
 interface Detail {
   icu_hr_zone_times?: number[]; icu_hr_zones?: number[];
   average_cadence?: number;
+  exercises?: { name: string; sets: HevySet[] }[]; // Hevy lifts (tr-sync stores every set)
 }
+
+/* "×3 Barbell Bench Press" — working sets only (Hevy tags warm-ups); hover shows
+   each set as weight × reps. Warm-ups/drop-sets are listed in the tooltip too. */
+const setLabel = (st: HevySet) => {
+  const core = st.weight_kg != null && st.weight_kg > 0 ? `${st.weight_kg} kg × ${st.reps ?? "?"}` : `${st.reps ?? "?"} reps`;
+  return st.type && st.type !== "normal" ? `${core} (${st.type})` : core;
+};
+const workingSets = (sets: HevySet[]) => sets.filter((st) => st.type !== "warmup").length;
 
 const workoutDay = (w: TrWorkout) => localISO(new Date(w.started_at));
 const stepsOf = (w: TrWorkout) => {
@@ -327,6 +337,15 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
         {pace != null && <p>{fmtPace(pace)} /km</p>}
         {steps != null && <p>≈{steps.toLocaleString()} steps</p>}
       </div>
+      {Array.isArray(d.exercises) && d.exercises.length > 0 && (
+        <ul className="mt-1.5 space-y-0.5 font-sans text-slate-600">
+          {d.exercises.map((ex, i) => (
+            <li key={i} className="truncate" title={ex.sets.map(setLabel).join(" · ")}>
+              <span className="font-mono text-slate-500">×{workingSets(ex.sets)}</span> {ex.name}
+            </li>
+          ))}
+        </ul>
+      )}
       {zones && zoneTotal > 60 && (
         <div className="mt-1.5 flex h-7 items-end gap-[2px]">
           {zones.map((secs, i) => (
