@@ -342,8 +342,8 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
         {tonnage > 0 ? ` · ${Math.round(tonnage).toLocaleString()} kg` : ""}
       </p>
       <div className="mt-1 space-y-0.5 font-mono text-slate-500">
-        {w.avg_hr != null && <p>❤ {Math.round(Number(w.avg_hr))} bpm</p>}
-        {pace != null && <p>{fmtPace(pace)} /km</p>}
+        {w.avg_hr != null && <p>Avg HR {Math.round(Number(w.avg_hr))} bpm</p>}
+        {pace != null && <p>Avg Pace {fmtPace(pace)} /km</p>}
         {steps != null && <p>≈{steps.toLocaleString()} steps</p>}
       </div>
       {Array.isArray(d.exercises) && d.exercises.length > 0 && (
