@@ -7,7 +7,7 @@ import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { CalendarRange, RefreshCw, Pencil } from "lucide-react";
 import { supabase } from "../../lib/supabase";
-import { Button, Card, EmptyState, cn } from "../../components/ui";
+import { Button, Card, EmptyState, Modal, cn } from "../../components/ui";
 import { type TrWorkout, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
 
 const WEEKS_SHOWN = 6;
@@ -327,6 +327,90 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
   );
 }
 
+/* ---------------- lift detail popup ---------------- */
+const SET_TYPE_TAG: Record<string, string> = { warmup: "W", dropset: "D", failure: "F" };
+const fmtKg = (kg: number) => kg.toLocaleString(undefined, { maximumFractionDigits: kg < 100 ? 1 : 0 });
+const startClock = (iso: string) => {
+  const t = new Date(new Date(iso).getTime() + 8 * 3600_000); // fixed MYT
+  return `${t.getUTCHours()}:${String(t.getUTCMinutes()).padStart(2, "0")}`;
+};
+
+/* Everything Hevy gave us for one session, set by set. Data = what tr-sync stores
+   (exercise name + per-set weight/reps/type) — see training/CLAUDE.md for the
+   fields Hevy offers beyond that (notes, RPE, muscle groups…) if wanted later. */
+function LiftDetail({ w, onClose }: { w: TrWorkout; onClose: () => void }) {
+  const exs = (w.data as Detail).exercises ?? [];
+  const all = exs.flatMap((e) => e.sets);
+  const totalReps = all.reduce((a, st) => a + (st.reps ?? 0), 0);
+  const volume = tonnageKg(exs);
+  const Tile = ({ label, value, sub }: { label: string; value: string; sub?: string }) => (
+    <div className="rounded-2xl bg-slate-50 px-3 py-2.5">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="font-mono text-base font-bold text-slate-900">{value}</p>
+      {sub && <p className="font-mono text-[10px] text-slate-500">{sub}</p>}
+    </div>
+  );
+  return (
+    <Modal open onClose={onClose} title={`${w.custom_name ?? w.name ?? "Lift"} · ${dayLabel(workoutDay(w))} · ${startClock(w.started_at)}`} wide>
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Tile label="Time" value={w.duration_min ? fmtDur(Number(w.duration_min)) : "—"} />
+          <Tile label="Sets" value={String(workingSets(all))} sub={all.length !== workingSets(all) ? `${all.length} incl. warm-ups` : undefined} />
+          <Tile label="Reps" value={totalReps.toLocaleString()} />
+          <Tile label="Volume" value={`${fmtKg(volume)} kg`} sub={`${exs.length} exercises`} />
+        </div>
+
+        <div className="space-y-4">
+          {exs.map((ex, i) => {
+            const vol = ex.sets.reduce((a, st) => a + (st.weight_kg ?? 0) * (st.reps ?? 0), 0);
+            const best = ex.sets.reduce((m, st) => Math.max(m, st.weight_kg ?? 0), 0);
+            return (
+              <div key={i}>
+                <div className="mb-1.5 flex items-baseline justify-between gap-3">
+                  <p className="text-sm font-semibold text-slate-900">{ex.name}</p>
+                  <p className="shrink-0 font-mono text-[11px] text-slate-500">
+                    {workingSets(ex.sets)} sets{vol > 0 && ` · ${fmtKg(vol)} kg`}{best > 0 && ` · top ${fmtKg(best)} kg`}
+                  </p>
+                </div>
+                <table className="w-full font-mono text-xs">
+                  <thead>
+                    <tr className="text-[10px] uppercase tracking-wide text-slate-400">
+                      <th className="w-10 py-1 text-left font-medium">Set</th>
+                      <th className="py-1 text-right font-medium">Weight</th>
+                      <th className="py-1 text-right font-medium">Reps</th>
+                      <th className="py-1 text-right font-medium">Volume</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {ex.sets.map((st, j) => (
+                      <tr key={j} className={cn(st.type === "warmup" && "text-slate-400")}>
+                        <td className="py-1 text-left">
+                          {j + 1}
+                          {st.type && SET_TYPE_TAG[st.type] && (
+                            <span className="ml-1 rounded-full bg-slate-200 px-1.5 text-[9px] font-semibold text-slate-600" title={st.type}>
+                              {SET_TYPE_TAG[st.type]}
+                            </span>
+                          )}
+                        </td>
+                        <td className="py-1 text-right">{st.weight_kg != null && st.weight_kg > 0 ? `${fmtKg(st.weight_kg)} kg` : "BW"}</td>
+                        <td className="py-1 text-right">{st.reps ?? "—"}</td>
+                        <td className="py-1 text-right text-slate-500">
+                          {st.weight_kg && st.reps ? fmtKg(st.weight_kg * st.reps) : "—"}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            );
+          })}
+        </div>
+        <p className="text-[10px] text-slate-400">W = warm-up · D = drop set · F = to failure · BW = bodyweight. Volume = weight × reps.</p>
+      </div>
+    </Modal>
+  );
+}
+
 /* ---------------- one activity mini-card ---------------- */
 function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) {
   const d = w.data as Detail;
@@ -337,6 +421,8 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
   const qc = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState("");
+  const [detail, setDetail] = useState(false);
+  const hasLiftDetail = Array.isArray(d.exercises) && d.exercises.length > 0;
   const shown = w.custom_name ?? w.name ?? w.sport;
   const rename = useMutation({
     mutationFn: async (value: string) => {
@@ -376,11 +462,17 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
     ? Number(w.duration_min) / Number(w.distance_km) : null;
 
   return (
-    <div className="group relative rounded-xl bg-slate-50 p-2 text-[11px] leading-tight dark:bg-slate-100">
+    <div
+      className={cn("group relative rounded-xl bg-slate-50 p-2 text-[11px] leading-tight dark:bg-slate-100",
+        hasLiftDetail && "cursor-pointer transition hover:bg-slate-100 dark:hover:bg-slate-200")}
+      onClick={hasLiftDetail && !editing ? () => setDetail(true) : undefined}
+      title={hasLiftDetail ? "Click for set-by-set detail" : undefined}
+    >
+      {detail && <LiftDetail w={w} onClose={() => setDetail(false)} />}
       {!editing && (
         <button
           type="button"
-          onClick={startEdit}
+          onClick={(e) => { e.stopPropagation(); startEdit(); }}
           aria-label="Rename"
           title="Rename"
           className="absolute right-1.5 top-1.5 rounded-full p-1 text-slate-400 opacity-0 transition hover:bg-slate-200/70 hover:text-slate-700 focus:opacity-100 group-hover:opacity-100"
@@ -391,6 +483,7 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
       {editing ? (
         <input
           autoFocus
+          onClick={(e) => e.stopPropagation()}
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           onBlur={commit}

@@ -41,7 +41,10 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   0007): the new title goes to `tr_workouts.custom_name`, which tr-sync NEVER writes
   (its upsert payload omits it), so renames survive every sync while `name` keeps
   being rewritten from the source. Display everywhere = `custom_name ?? name`;
-  empty input clears the rename. Gym bucket =
+  empty input clears the rename. **Clicking a lift card opens a set-by-set popup**
+  (`LiftDetail`: tiles for time / working sets / reps / volume, then per exercise a
+  table of weight × reps with W/D/F tags for warm-up / drop / failure sets and BW for
+  bodyweight). Gym bucket =
   strength + 'other' (Garmin
   logs Jared's gym sessions as generic "Workout"). Since Hevy is the lift source
   (2026-09-07) a Garmin gym-bucket entry whose recording window overlaps a Hevy
@@ -129,6 +132,25 @@ Telegram ───────── tr-telegram-webhook  (verify_jwt FALSE, sec
 | `TELEGRAM_BOT_TOKEN` / `TELEGRAM_WEBHOOK_SECRET` | the bot (register webhook with the secret_token, see below) |
 | `ANTHROPIC_API_KEY` (opt. `ANTHROPIC_MODEL`) | conversational bot + plan fine-tuning |
 | `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` / `GOOGLE_REFRESH_TOKEN` (opt. `GOOGLE_CALENDAR_ID`) | calendar push |
+
+### What Hevy's API exposes (probed live 2026-09-07 — the docs page is an empty Swagger shell)
+
+tr-sync currently stores only `exercises[].name` + `sets[].{weight_kg,reps,type}`.
+Available but NOT yet stored (add to the Hevy mapper in tr-sync + the popup if wanted):
+
+- **Workout**: `description` (free-text session note), `routine_id`, `created_at`/`updated_at`.
+- **Exercise**: `notes` (per-exercise note), `exercise_template_id`, `superset_id`, `index`.
+- **Set**: `index`, `rpe` (only if logged), `duration_seconds` + `distance_meters` (planks,
+  carries, cardio machines), `custom_metric`. Set `type` ∈ normal/warmup/dropset/failure.
+- **`GET /v1/exercise_templates`** (451 pages of 1 → ~450 exercises incl. custom): `title`,
+  `type` (weight_reps / reps_only / duration / distance_duration…), `primary_muscle_group`,
+  `secondary_muscle_groups[]`, `equipment`, `is_custom` → enables per-muscle-group volume.
+- **`GET /v1/routines`** (Jared has 3: Push/Pull/Legs): the planned exercises with target
+  sets/reps + `rest_seconds` → could compare planned vs performed.
+- **`GET /v1/workouts/events?since=…`**: `updated` / `deleted` events → the right way to
+  reconcile Hevy deletions (today only intervals.icu deletions are reconciled).
+- **`GET /v1/workouts/count`**. Jared's usage so far: 0 descriptions, 0 notes, 0 RPE,
+  0 supersets, all sets `normal` — so those fields would show empty until he logs them.
 
 Hevy's API key is NOT a secret here — it's stored in `tr_settings.hevy_api_key`
 (owner-RLS row, single-user app), entered in the app's Settings.
