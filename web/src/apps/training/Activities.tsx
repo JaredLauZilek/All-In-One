@@ -4,7 +4,8 @@
 // and an HR-zone mini-graph with the title below; per week (left rail):
 // gym vs cardio totals with %-change against the previous week.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { CalendarRange, RefreshCw } from "lucide-react";
+import { useState } from "react";
+import { CalendarRange, RefreshCw, Pencil } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, EmptyState, cn } from "../../components/ui";
 import { type TrWorkout, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
@@ -333,6 +334,28 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
 /* ---------------- one activity mini-card ---------------- */
 function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) {
   const d = w.data as Detail;
+  // Rename in place. Hover shows a pencil; the title becomes an input. Enter/blur
+  // saves, Esc cancels, an empty value clears the rename (back to the source
+  // title). Saved to custom_name — a column tr-sync never writes, so it outlives
+  // every future sync, unlike `name` (rewritten from intervals.icu/Hevy each run).
+  const qc = useQueryClient();
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const shown = w.custom_name ?? w.name ?? w.sport;
+  const rename = useMutation({
+    mutationFn: async (value: string) => {
+      const v = value.trim();
+      const { error } = await supabase.from("tr_workouts")
+        .update({ custom_name: v && v !== (w.name ?? "") ? v : null }).eq("id", w.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tr-activities"] });
+      qc.invalidateQueries({ queryKey: ["tr-week"] });
+    },
+  });
+  const startEdit = () => { setDraft(shown); setEditing(true); };
+  const commit = () => { setEditing(false); if (draft.trim() !== shown) rename.mutate(draft); };
   // Custom zone seconds (bucketed by tr-sync from the raw HR stream against
   // Jared's dated zone versions — real columns) win; the intervals.icu model
   // is only a fallback while no custom zone versions exist.
@@ -358,10 +381,39 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
     ? Number(w.duration_min) / Number(w.distance_km) : null;
 
   return (
-    <div className="rounded-xl bg-slate-50 p-2 text-[11px] leading-tight dark:bg-slate-100">
-      <p className="mb-1 truncate font-sans text-[11px] font-semibold text-slate-900" title={w.name ?? ""}>
-        {w.name ?? w.sport}
-      </p>
+    <div className="group relative rounded-xl bg-slate-50 p-2 text-[11px] leading-tight dark:bg-slate-100">
+      {!editing && (
+        <button
+          type="button"
+          onClick={startEdit}
+          aria-label="Rename"
+          title="Rename"
+          className="absolute right-1.5 top-1.5 rounded-full p-1 text-slate-400 opacity-0 transition hover:bg-slate-200/70 hover:text-slate-700 focus:opacity-100 group-hover:opacity-100"
+        >
+          <Pencil className="h-3 w-3" />
+        </button>
+      )}
+      {editing ? (
+        <input
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") commit();
+            if (e.key === "Escape") { setDraft(shown); setEditing(false); }
+          }}
+          placeholder={w.name ?? w.sport}
+          className="mb-1 w-full rounded-md border border-slate-300 bg-surface px-1.5 py-0.5 font-sans text-[11px] font-semibold text-slate-900 outline-none ring-indigo-500 focus:ring-2"
+        />
+      ) : (
+        <p
+          className={cn("mb-1 truncate pr-5 font-sans text-[11px] font-semibold", rename.isPending ? "text-slate-400" : "text-slate-900")}
+          title={w.custom_name ? `Source title: ${w.name ?? w.sport}` : shown}
+        >
+          {shown}
+        </p>
+      )}
       <p className="font-mono font-semibold text-slate-900">
         {SPORT_EMOJI[w.sport] ?? "•"} {w.duration_min ? fmtDur(Number(w.duration_min)) : "—"}
         {w.distance_km ? ` · ${Number(w.distance_km).toFixed(1)} km` : ""}

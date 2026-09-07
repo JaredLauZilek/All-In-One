@@ -24,6 +24,7 @@ export interface TrSession {
 
 export interface TrWorkout {
   id: string; source: "strava" | "hevy" | "manual" | "intervals"; sport: string; name: string | null;
+  custom_name: string | null; // app-side rename (0007) — survives sync; null = source name
   started_at: string; duration_min: number | null; distance_km: number | null;
   avg_hr: number | null; data: Record<string, unknown>;
   // custom zone results (columns — survive the sync's data upsert)

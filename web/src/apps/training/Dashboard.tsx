@@ -341,7 +341,7 @@ function RecentWorkoutsCard({ workouts }: { workouts: TrWorkout[] }) {
             <li key={w.id} className="flex items-center gap-3 px-5 py-2.5">
               <span className="text-base">{SPORT_EMOJI[w.sport] ?? "•"}</span>
               <div className="min-w-0 flex-1">
-                <p className="truncate text-sm font-medium text-slate-800">{w.name ?? w.sport}</p>
+                <p className="truncate text-sm font-medium text-slate-800">{w.custom_name ?? w.name ?? w.sport}</p>
                 <p className="font-mono text-[11px] text-slate-400">
                   {w.started_at.slice(0, 10)} · {w.source}
                   {w.distance_km ? ` · ${Number(w.distance_km).toFixed(1)} km` : ""}

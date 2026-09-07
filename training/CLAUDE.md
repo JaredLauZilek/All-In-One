@@ -37,7 +37,11 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   (all four always shown — an empty sport reads "0m · 0.0 km"); under each, the change vs the previous
   week in the row's headline quantity — km for cardio, kg lifted for gym — as BOTH a
   % and an absolute number ("▲ 45% +9.0 km"). Time is not compared (a "▼ 3% time /
-  +368 kg" pair read as a contradiction). Gym bucket =
+  +368 kg" pair read as a contradiction). **Cards are renameable** (hover → pencil,
+  0007): the new title goes to `tr_workouts.custom_name`, which tr-sync NEVER writes
+  (its upsert payload omits it), so renames survive every sync while `name` keeps
+  being rewritten from the source. Display everywhere = `custom_name ?? name`;
+  empty input clears the rename. Gym bucket =
   strength + 'other' (Garmin
   logs Jared's gym sessions as generic "Workout"). Since Hevy is the lift source
   (2026-09-07) a Garmin gym-bucket entry whose recording window overlaps a Hevy
@@ -148,7 +152,7 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
   tr-plan-week `verify_jwt: true`; **tr-telegram-webhook `verify_jwt: false`**);
   `supabase/functions/` here is the source mirror.
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
-  2026-09-05). Next migration: `0002_`.
+  2026-09-05; 0007 `custom_name` applied 2026-09-07). Next migration: `0008_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).
 
 ## Gotchas
