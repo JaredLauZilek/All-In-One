@@ -241,20 +241,65 @@ function Delta({ cur, prev }: { cur: number; prev: number | null }) {
   );
 }
 
+/* Absolute change, signed: "+9.1 km", "−1,240 kg". Colour follows direction. */
+function AbsDelta({ cur, prev, unit, decimals = 0 }: { cur: number; prev: number; unit: string; decimals?: number }) {
+  const diff = cur - prev;
+  if (!prev && !cur) return null;
+  if (Math.abs(diff) < 0.05) return <span className="font-mono text-[11px] text-slate-400">±0 {unit}</span>;
+  const num = Math.abs(diff).toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
+  return (
+    <span className={cn("font-mono text-[11px] font-semibold", diff > 0 ? "text-emerald-600" : "text-red-500")}>
+      {diff > 0 ? "+" : "−"}{num} {unit}
+    </span>
+  );
+}
+
+/* One sport row: "🏃 Run   3h59m · 29.0 km" then, under it, the time change in %
+   and the distance / tonnage change as an absolute number (Jared: "+20.3 km", not
+   "+45% km"). */
+function SportRow({ emoji, label, min, amount, unit, decimals, prev }: {
+  emoji: string; label: string; min: number; amount: number; unit: string; decimals: number;
+  prev: { min: number; amount: number } | null;
+}) {
+  return (
+    <div>
+      <div className="flex items-baseline justify-between">
+        <span className="text-xs text-slate-500">{emoji} {label}</span>
+        <span className="font-mono text-xs font-semibold text-slate-800">
+          {fmtDur(min)}
+          {amount > 0 && ` · ${amount.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} ${unit}`}
+        </span>
+      </div>
+      {prev && (min > 0 || prev.min > 0) && (
+        <div className="mt-0.5 flex items-baseline justify-end gap-2">
+          <Delta cur={min} prev={prev.min} />
+          <AbsDelta cur={amount} prev={prev.amount} unit={unit} decimals={decimals} />
+        </div>
+      )}
+    </div>
+  );
+}
+
 function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
   weekStart: string; isCurrent: boolean; workouts: TrWorkout[]; prevWorkouts: TrWorkout[] | null;
 }) {
   const sum = (list: TrWorkout[], sports: string[], field: "duration_min" | "distance_km") =>
     list.filter((w) => sports.includes(w.sport)).reduce((a, w) => a + (Number(w[field]) || 0), 0);
-  const cardioMin = sum(workouts, CARDIO, "duration_min");
-  const cardioKm = sum(workouts, CARDIO, "distance_km");
-  const gymMin = sum(workouts, GYM, "duration_min");
-  const totalMin = cardioMin + gymMin;
-  const prev = prevWorkouts && {
-    cardioMin: sum(prevWorkouts, CARDIO, "duration_min"),
-    cardioKm: sum(prevWorkouts, CARDIO, "distance_km"),
-    gymMin: sum(prevWorkouts, GYM, "duration_min"),
-  };
+  const tonnage = (list: TrWorkout[]) =>
+    list.filter((w) => GYM.includes(w.sport)).reduce((a, w) => a + tonnageKg((w.data as Detail).exercises), 0);
+  // Per-sport buckets. Run / Gym always show; Swim / Cycle only once they have data
+  // (this week or last) so the card stays short until Jared starts them.
+  const stats = (list: TrWorkout[]) => ({
+    run: { min: sum(list, ["run"], "duration_min"), amount: sum(list, ["run"], "distance_km") },
+    swim: { min: sum(list, ["swim"], "duration_min"), amount: sum(list, ["swim"], "distance_km") },
+    ride: { min: sum(list, ["ride"], "duration_min"), amount: sum(list, ["ride"], "distance_km") },
+    gym: { min: sum(list, GYM, "duration_min"), amount: tonnage(list) },
+    totalMin: sum(list, [...CARDIO, ...GYM], "duration_min"),
+    cardioKm: sum(list, CARDIO, "distance_km"),
+  });
+  const cur = stats(workouts);
+  const prev = prevWorkouts ? stats(prevWorkouts) : null;
+  const show = (k: "swim" | "ride") => cur[k].min > 0 || (prev?.[k].min ?? 0) > 0;
 
   return (
     <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-3.5 md:border-b-0 md:border-r">
@@ -271,31 +316,14 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
           <div className="flex items-baseline justify-between">
             <span className="text-xs font-medium text-slate-500">Total</span>
             <span className="font-mono text-sm font-semibold text-slate-900">
-              {fmtDur(totalMin)}{cardioKm > 0 && <span className="text-slate-400"> · {cardioKm.toFixed(1)} km</span>}
+              {fmtDur(cur.totalMin)}{cur.cardioKm > 0 && <span className="text-slate-400"> · {cur.cardioKm.toFixed(1)} km</span>}
             </span>
           </div>
-          <div className="border-t border-slate-200/60 pt-2.5">
-            <div className="flex items-baseline justify-between">
-              <span className="text-xs text-slate-500">🏃 Cardio</span>
-              <span className="font-mono text-xs font-semibold text-slate-800">
-                {fmtDur(cardioMin)} · {cardioKm.toFixed(1)} km
-              </span>
-            </div>
-            {prev && <div className="mt-0.5 text-right">
-              <Delta cur={cardioMin} prev={prev.cardioMin} />
-              {prev.cardioKm > 0 && cardioKm > 0 && (
-                <span className="ml-2 font-mono text-[11px] text-slate-400">
-                  ({pct(cardioKm, prev.cardioKm) ?? "±0%"} km)
-                </span>
-              )}
-            </div>}
-          </div>
-          <div>
-            <div className="flex items-baseline justify-between">
-              <span className="text-xs text-slate-500">🏋️ Gym</span>
-              <span className="font-mono text-xs font-semibold text-slate-800">{fmtDur(gymMin)}</span>
-            </div>
-            {prev && <div className="mt-0.5 text-right"><Delta cur={gymMin} prev={prev.gymMin} /></div>}
+          <div className="space-y-2.5 border-t border-slate-200/60 pt-2.5">
+            <SportRow emoji="🏃" label="Run" unit="km" decimals={1} min={cur.run.min} amount={cur.run.amount} prev={prev && prev.run} />
+            {show("swim") && <SportRow emoji="🏊" label="Swim" unit="km" decimals={1} min={cur.swim.min} amount={cur.swim.amount} prev={prev && prev.swim} />}
+            {show("ride") && <SportRow emoji="🚴" label="Cycle" unit="km" decimals={1} min={cur.ride.min} amount={cur.ride.amount} prev={prev && prev.ride} />}
+            <SportRow emoji="🏋️" label="Gym" unit="kg" decimals={0} min={cur.gym.min} amount={cur.gym.amount} prev={prev && prev.gym} />
           </div>
           {prev && <p className="pt-1 text-[10px] text-slate-400">vs week {isoWeekNo(addDaysISO(weekStart, -7))}</p>}
         </div>

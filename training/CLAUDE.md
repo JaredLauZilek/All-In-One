@@ -31,8 +31,12 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   weekly grid — per activity: time/distance/avg HR/pace/estimated steps (run cadence
   ×2 — Garmin sends no per-workout step total) + HR-zone mini-bars from
   `data.icu_hr_zone_times` (tr-sync stores a compact copy of each intervals.icu
-  activity: scalars + arrays ≤12 long, nulls dropped); per week: gym vs cardio
-  totals with Δ% vs the previous week. Gym bucket = strength + 'other' (Garmin
+  activity: scalars + arrays ≤12 long, nulls dropped); lift cards list each
+  exercise as "×N name" (working sets, warm-ups excluded) with tonnage Σ weight×reps
+  over every set (= Hevy's volume figure); per week: Run / Swim / Cycle / Gym rows
+  (Swim + Cycle appear once they have data) with time Δ% vs the previous week AND
+  the absolute change in km / kg (Jared: "+20.3 km", not "+45% km"). Gym bucket =
+  strength + 'other' (Garmin
   logs Jared's gym sessions as generic "Workout"). Since Hevy is the lift source
   (2026-09-07) a Garmin gym-bucket entry whose recording window overlaps a Hevy
   lift (±20 min) is hidden client-side (`dedupeGymShadows`, rows kept for HR data)
