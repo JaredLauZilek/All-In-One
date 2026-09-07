@@ -73,10 +73,6 @@ const tonnageKg = (exs: Detail["exercises"]) =>
   (exs ?? []).reduce((t, ex) => t + ex.sets.reduce((a, st) => a + (st.weight_kg ?? 0) * (st.reps ?? 0), 0), 0);
 
 const workoutDay = (w: TrWorkout) => localISO(new Date(w.started_at));
-const stepsOf = (w: TrWorkout) => {
-  const cad = (w.data as Detail).average_cadence;
-  return w.sport === "run" && cad && w.duration_min ? Math.round(cad * 2 * Number(w.duration_min)) : null;
-};
 
 /* Hevy (Pro) is the source of truth for lifts. Jared still wears his Garmin in
    the gym, so the SAME session can also arrive from intervals.icu as a generic
@@ -375,7 +371,6 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
     const range = i === 0 ? `≤${ceilings[0]}` : `${ceilings[i - 1] + 1}–${ceilings[i]}`;
     return `Z${i + 1} (${range} bpm) · ${time}`;
   };
-  const steps = stepsOf(w);
   const tonnage = tonnageKg(d.exercises);
   const pace = w.sport === "run" && w.distance_km && w.duration_min
     ? Number(w.duration_min) / Number(w.distance_km) : null;
@@ -420,9 +415,8 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
         {tonnage > 0 ? ` · ${Math.round(tonnage).toLocaleString()} kg` : ""}
       </p>
       <div className="mt-1 space-y-0.5 font-mono text-slate-500">
-        {w.avg_hr != null && <p>Avg HR {Math.round(Number(w.avg_hr))} bpm</p>}
-        {pace != null && <p>Avg Pace {fmtPace(pace)} /km</p>}
-        {steps != null && <p>≈{steps.toLocaleString()} steps</p>}
+        {w.avg_hr != null && <p>Avg HR <span className="font-bold text-red-500">{Math.round(Number(w.avg_hr))} bpm</span></p>}
+        {pace != null && <p>Avg Pace <span className="font-bold text-indigo-600">{fmtPace(pace)} /km</span></p>}
       </div>
       {Array.isArray(d.exercises) && d.exercises.length > 0 && (
         <ul className="mt-1.5 space-y-0.5 font-sans text-slate-600">

@@ -28,8 +28,8 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   athlete ID can return 200 `[]` and must not wipe the window), and a 1-day margin
   keeps the reconciled range strictly inside the fetched range. Reported as `removed`.
 - **Activities tab** (`/training/activities`, added 2026-09-06): intervals.icu-style
-  weekly grid — per activity: time/distance/avg HR/pace/estimated steps (run cadence
-  ×2 — Garmin sends no per-workout step total) + HR-zone mini-bars from
+  weekly grid — per activity: time/distance, avg HR (bold red) and avg pace (bold
+  indigo) — the estimated-steps line was dropped 2026-09-07 — + HR-zone mini-bars from
   `data.icu_hr_zone_times` (tr-sync stores a compact copy of each intervals.icu
   activity: scalars + arrays ≤12 long, nulls dropped); lift cards list each
   exercise as "×N name" (working sets, warm-ups excluded) with tonnage Σ weight×reps
