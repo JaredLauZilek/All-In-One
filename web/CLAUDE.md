@@ -57,7 +57,8 @@ web/
   (a slot div in Layout's header). The evs pages self-fetch with react-query instead —
   the two data patterns are both intentional (polling-friendly vs once-a-day data).
 - **Routing**: `/fin`, `/fin/news`, `/fin/settings`, `/evs`, `/evs/trades`,
-  `/evs/settings`, `/training`, `/training/races`, `/training/settings`, `/infra`.
+  `/evs/settings`, `/training`, `/training/activities`, `/training/races`,
+  `/training/settings`, `/infra`.
   Nav, titles and sub-tabs all derive from `APPS` in
   `Layout.tsx`. A new tool = a folder under `apps/`, routes in `App.tsx`, an APPS
   entry, a tile in `Home.tsx`, and (if it uses services) entries in

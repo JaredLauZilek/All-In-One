@@ -3,17 +3,17 @@
 // (estimated from run cadence ×2 — Garmin sends no step total per workout)
 // and an HR-zone mini-graph with the title below; per week (left rail):
 // gym vs cardio totals with %-change against the previous week.
-import { useQuery } from "@tanstack/react-query";
-import { CalendarRange } from "lucide-react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { CalendarRange, RefreshCw } from "lucide-react";
 import { supabase } from "../../lib/supabase";
-import { Card, EmptyState, cn } from "../../components/ui";
+import { Button, Card, EmptyState, cn } from "../../components/ui";
 import { type TrWorkout, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
 
 const WEEKS_SHOWN = 6;
 
 /* Buckets for the weekly split. Lifts come from Hevy ('strength'). Garmin also logs
-   gym sessions as a generic "Workout" (→ 'other'); those are deduped against Hevy per
-   day (dedupeGymShadows) so 'other' only counts as gym when there's no Hevy lift. */
+   gym sessions as a generic "Workout" (→ 'other'); a Garmin entry that overlaps a
+   Hevy lift in time is dropped (dedupeGymShadows) so the session isn't counted twice. */
 const CARDIO = ["run", "ride", "swim", "brick", "hyrox"];
 const GYM = ["strength", "other"];
 
@@ -64,14 +64,26 @@ const stepsOf = (w: TrWorkout) => {
 };
 
 /* Hevy (Pro) is the source of truth for lifts. Jared still wears his Garmin in
-   the gym, so the SAME session also arrives from intervals.icu as a generic
-   "Workout" (sport 'other'). Left alone, the gym bucket counts it twice — the
-   exact duplicates he was deleting by hand. Drop the Garmin shadow on any MYT day
-   that has a Hevy lift; a day with no Hevy lift keeps its 'other' entry, so a
+   the gym, so the SAME session can also arrive from intervals.icu as a generic
+   "Workout" (sport 'other') or a Strength activity. Left alone, the gym bucket
+   counts it twice — the exact duplicates he was deleting by hand. A Garmin
+   gym-bucket entry is a shadow only when its recording window OVERLAPS a Hevy
+   lift (±20 min slack — the two timers never start together). A same-day test
+   was too blunt: it hid a 36-second morning Garmin walk because of an evening
+   Pull session (27 Jul 2026). No overlapping lift = the Garmin entry stays, so a
    forgotten Hevy log still counts as gym. DB rows are untouched (Garmin's HR data). */
+const SHADOW_SLACK_MS = 20 * 60_000;
+const spanOf = (w: TrWorkout): [number, number] => {
+  const start = new Date(w.started_at).getTime();
+  return [start, start + Number(w.duration_min ?? 0) * 60_000];
+};
 function dedupeGymShadows(list: TrWorkout[]): TrWorkout[] {
-  const hevyDays = new Set(list.filter((w) => w.source === "hevy").map(workoutDay));
-  return list.filter((w) => !(w.source === "intervals" && w.sport === "other" && hevyDays.has(workoutDay(w))));
+  const lifts = list.filter((w) => w.source === "hevy").map(spanOf);
+  return list.filter((w) => {
+    if (w.source !== "intervals" || !(GYM as readonly string[]).includes(w.sport)) return true;
+    const [s, e] = spanOf(w);
+    return !lifts.some(([ls, le]) => s < le + SHADOW_SLACK_MS && ls < e + SHADOW_SLACK_MS);
+  });
 }
 
 export default function Activities() {
@@ -90,6 +102,40 @@ export default function Activities() {
     },
   });
 
+  // Manual "pull everything now". tr-sync fetches intervals.icu (runs + wellness)
+  // AND Hevy (lifts) in one call and reconciles deletions, so one button covers
+  // both sources. Same wiring as the Week tab's button.
+  const qc = useQueryClient();
+  const sync = useMutation({
+    mutationFn: async () => {
+      const { data: res, error } = await supabase.functions.invoke("tr-sync", { body: {} });
+      if (error) throw error;
+      return res as { intervals: number; removed: number; wellness: number; hevy: number; matched: number; errors: string[] };
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tr-activities"] });
+      qc.invalidateQueries({ queryKey: ["tr-week"] }); // the Week tab reads the same rows
+    },
+  });
+  const syncBar = (
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <p className="text-xs text-slate-500">Runs from intervals.icu · lifts from Hevy</p>
+      <div className="flex flex-wrap items-center gap-3">
+        {sync.isSuccess && (
+          <span className="font-mono text-[11px] text-slate-500">
+            Synced — intervals.icu {sync.data.intervals ?? 0} · Hevy {sync.data.hevy ?? 0}
+            {sync.data.removed ? ` · removed ${sync.data.removed}` : ""}
+            {sync.data.errors?.length ? ` · ⚠ ${sync.data.errors.join("; ")}` : ""}
+          </span>
+        )}
+        {sync.isError && <span className="text-[11px] text-red-500">{String(sync.error)}</span>}
+        <Button variant="secondary" onClick={() => sync.mutate()} loading={sync.isPending}>
+          <RefreshCw className="h-4 w-4" /> Sync
+        </Button>
+      </div>
+    </div>
+  );
+
   const currentMonday = mondayOf();
   const weekStarts = Array.from({ length: WEEKS_SHOWN }, (_, i) => addDaysISO(currentMonday, -7 * i));
   const byDay = new Map<string, TrWorkout[]>();
@@ -102,15 +148,19 @@ export default function Activities() {
 
   if ((workouts ?? []).length === 0) {
     return (
-      <Card>
-        <EmptyState icon={<CalendarRange className="h-5 w-5" />} title="No activities yet"
-          subtitle="Connect intervals.icu in Settings and hit Sync on the Week tab — everything Garmin records shows up here." />
-      </Card>
+      <div className="space-y-6">
+        {syncBar}
+        <Card>
+          <EmptyState icon={<CalendarRange className="h-5 w-5" />} title="No activities yet"
+            subtitle="Connect intervals.icu and Hevy in Settings, then hit Sync — runs and lifts show up here." />
+        </Card>
+      </div>
     );
   }
 
   return (
     <div className="space-y-6">
+      {syncBar}
       {weekStarts.map((start, i) => (
         <WeekRow key={start}
           weekStart={start}

@@ -18,7 +18,9 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   auto-syncs to it; free API, Basic auth with literal username `API_KEY`; credentials in
   `tr_settings.intervals_athlete_id/_api_key`, added 2026-09-06 after Strava gated its
   API behind a paid Strava subscription — the Strava OAuth path remains in the code,
-  dormant) and Hevy (lifts, full set/rep detail), auto-matched to planned sessions. **Deletions
+  dormant) and **Hevy** (lifts with full set/rep detail; needs Hevy Pro for the API —
+  bought 2026-09-07, key in `tr_settings.hevy_api_key`, verified live: 20 lifts Jun–Sep
+  landed on the first sync), auto-matched to planned sessions. **Deletions
   reconcile too** (2026-09-07): each sync compares the window it just fetched against
   what's stored and removes intervals.icu activities that vanished upstream, un-ticking
   any planned session they had completed (`matched_workout_id` has no FK, so it would
@@ -31,7 +33,15 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   `data.icu_hr_zone_times` (tr-sync stores a compact copy of each intervals.icu
   activity: scalars + arrays ≤12 long, nulls dropped); per week: gym vs cardio
   totals with Δ% vs the previous week. Gym bucket = strength + 'other' (Garmin
-  logs Jared's gym sessions as generic "Workout").
+  logs Jared's gym sessions as generic "Workout"). Since Hevy is the lift source
+  (2026-09-07) a Garmin gym-bucket entry whose recording window overlaps a Hevy
+  lift (±20 min) is hidden client-side (`dedupeGymShadows`, rows kept for HR data)
+  so the same session isn't counted twice — overlap, not same-day: a same-day rule
+  hid a morning Garmin walk on a Pull-day.
+- **Sync is manual only** — no cron. Triggers: the Sync button on the Week tab AND
+  the Activities tab (both call `tr-sync` with the default 45-day window — one call
+  covers intervals.icu + wellness + Hevy), an HR-zone edit in Settings (120 days),
+  and the Telegram `/sync` command.
 - **Custom HR zones are DATED VERSIONS** (`tr_hr_zones`: effective_from + ceilings +
   note; 0004 single-column form superseded by 0005). Each set applies to activities
   on/after its date until the next version; activities older than the earliest

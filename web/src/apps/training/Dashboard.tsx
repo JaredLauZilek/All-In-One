@@ -53,7 +53,7 @@ export default function Dashboard() {
     mutationFn: async () => {
       const { data: res, error } = await supabase.functions.invoke("tr-sync", { body: {} });
       if (error) throw error;
-      return res as { intervals: number; wellness: number; strava: number; hevy: number; matched: number; errors: string[] };
+      return res as { intervals: number; removed: number; wellness: number; strava: number; hevy: number; matched: number; errors: string[] };
     },
     onSuccess: invalidate,
   });
@@ -132,7 +132,7 @@ export default function Dashboard() {
             )}
             {sync.isSuccess && (
               <p className="mx-5 mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-                Synced — intervals.icu {sync.data.intervals ?? 0} · wellness {sync.data.wellness ?? 0} d · Hevy {sync.data.hevy} · matched {sync.data.matched}
+                Synced — intervals.icu {sync.data.intervals ?? 0} · wellness {sync.data.wellness ?? 0} d · Hevy {sync.data.hevy} · matched {sync.data.matched}{sync.data.removed ? ` · removed ${sync.data.removed}` : ""}
                 {sync.data.errors?.length ? ` · ⚠ ${sync.data.errors.join("; ")}` : ""}
               </p>
             )}
