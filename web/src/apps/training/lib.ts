@@ -31,6 +31,26 @@ export interface TrWorkout {
   hr_zone_secs: number[] | null; hr_zones: number[] | null; hr_zones_key: string | null;
 }
 
+/* ---- Hevy lift detail as stored by tr-sync in tr_workouts.data.exercises ---- */
+export interface HevySet { weight_kg?: number | null; reps?: number | null; type?: string | null }
+export interface HevyExercise { name: string; template_id?: string | null; sets: HevySet[] }
+export const hevyExercises = (w: TrWorkout): HevyExercise[] => {
+  const ex = (w.data as { exercises?: unknown }).exercises;
+  return Array.isArray(ex) ? (ex as HevyExercise[]) : [];
+};
+/* Working sets = everything Hevy didn't tag as a warm-up. */
+export const workingSets = (sets: HevySet[]) => sets.filter((st) => st.type !== "warmup").length;
+/* Volume the way Hevy shows it: Σ weight × reps over EVERY set (warm-ups included). */
+export const tonnageKg = (exs: HevyExercise[]) =>
+  exs.reduce((t, ex) => t + ex.sets.reduce((a, st) => a + (st.weight_kg ?? 0) * (st.reps ?? 0), 0), 0);
+
+/* tr_hevy_exercises (0011) — Hevy's exercise library, cached by tr-sync. */
+export interface TrHevyExercise {
+  template_id: string; title: string; type: string | null;
+  primary_muscle_group: string | null; secondary_muscle_groups: string[]; equipment: string | null;
+}
+export const muscleLabel = (g: string) => g.replace(/_/g, " ").replace(/^\w/, (c) => c.toUpperCase());
+
 export interface TrWellness {
   day: string; resting_hr: number | null; hrv: number | null;
   sleep_secs: number | null; sleep_score: number | null; weight_kg: number | null;

@@ -1,8 +1,9 @@
 # CLAUDE.md — Training (tr)
 
 Backend home of the **Training** mini-app (Hyrox + endurance racing). The frontend lives
-in the unified app at `web/src/apps/training/` (Week / Races / Settings under
-`/training`); this folder holds the edge functions and migration ledger. **Everything
+in the unified app at `web/src/apps/training/` (Overview [renamed from "Week"
+2026-09-07] / Activities / Races / Settings under `/training`); this folder holds the
+edge functions and migration ledger. **Everything
 this app owns is prefixed `tr_` / `TR_` / `tr-`** (siblings: `fin_` financial-tracker,
 `evs_` evs-scanner — never touch theirs).
 
@@ -59,7 +60,18 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   lift (±20 min) is hidden client-side (`dedupeGymShadows`, rows kept for HR data)
   so the same session isn't counted twice — overlap, not same-day: a same-day rule
   hid a morning Garmin walk on a Pull-day.
-- **Sync is manual only** — no cron. Triggers: the Sync button on the Week tab AND
+- **Overview tab** (`/training`, the old "Week" tab): stat cards, race feature card,
+  this week's sessions with done/skip, Recovery, then (2026-09-07, replacing the
+  "Recent workouts" list) three cards: **Run km** and **Weight lifted** — weekly
+  totals over the last 8 weeks as single-series line charts with the current week
+  emphasised and a Δ vs last week; and **Sets per muscle group** — this week's
+  working sets per Hevy muscle group (primary counted in full, secondary shown as
+  a lighter bar segment / "+n"), with Δ vs last week. Muscle groups come from
+  **`tr_hevy_exercises`** (0011): tr-sync stores each exercise's `template_id` and
+  refetches Hevy's full exercise library (`/v1/exercise_templates`, 5 pages × 100)
+  only when it meets an id it hasn't cached. Exercises synced before 0011 have no
+  template_id until the next sync rewrites them ("not yet in the library" note).
+- **Sync is manual only** — no cron. Triggers: the Sync button on the Overview tab AND
   the Activities tab (both call `tr-sync` with the default 45-day window — one call
   covers intervals.icu + wellness + Hevy), an HR-zone edit in Settings (120 days),
   and the Telegram `/sync` command.
@@ -198,7 +210,8 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
   `supabase/functions/` here is the source mirror.
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
   2026-09-05; 0007 `custom_name`, 0008 `tr_wellness.steps`, 0009 `tr_workouts.detail`,
-  0010 `tr_bot_proposals` applied 2026-09-07). Next migration: `0011_`.
+  0010 `tr_bot_proposals`, 0011 `tr_hevy_exercises` applied 2026-09-07). Next
+  migration: `0012_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).
 
 ## Gotchas

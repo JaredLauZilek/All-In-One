@@ -43,7 +43,7 @@ const APPS = [
     name: "Training",
     icon: Dumbbell,
     items: [
-      { to: "/training", label: "Week", icon: CalendarDays, end: true },
+      { to: "/training", label: "Overview", icon: CalendarDays, end: true },
       { to: "/training/activities", label: "Activities", icon: Activity },
       { to: "/training/races", label: "Races", icon: Trophy },
       { to: "/training/settings", label: "Settings", icon: SlidersHorizontal },

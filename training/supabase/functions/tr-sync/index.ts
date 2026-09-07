@@ -57,7 +57,7 @@ Deno.serve(async (req) => {
     const days = Math.min(120, Number(body.days) || 45);
     const since = new Date(Date.now() - days * 86400_000);
     const errors: string[] = [];
-    let stravaCount = 0, hevyCount = 0;
+    let stravaCount = 0, hevyCount = 0, hevyCatalog = 0;
 
     /* ---------- Strava ---------- */
     const { data: tok } = await svc.from("tr_tokens").select("*").eq("user_id", userId).eq("provider", "strava").maybeSingle();
@@ -293,6 +293,7 @@ Deno.serve(async (req) => {
     /* ---------- Hevy ---------- */
     if (settings?.hevy_api_key) {
       try {
+        const seenTemplates = new Set<string>();
         for (let page = 1; page <= 5; page++) {
           const r = await fetch(`https://api.hevyapp.com/v1/workouts?page=${page}&pageSize=10`, {
             headers: { "api-key": settings.hevy_api_key, "Content-Type": "application/json" },
@@ -302,9 +303,12 @@ Deno.serve(async (req) => {
           const workouts = data.workouts ?? [];
           if (workouts.length === 0) break;
           const rows = workouts.map((w: Record<string, unknown>) => {
+            for (const e of (w.exercises as Record<string, unknown>[]) ?? []) if (e.exercise_template_id) seenTemplates.add(String(e.exercise_template_id));
             const start = new Date(String(w.start_time)), end = new Date(String(w.end_time));
             const exercises = ((w.exercises as Record<string, unknown>[]) ?? []).map((e) => ({
               name: e.title,
+              // → tr_hevy_exercises (0011): primary/secondary muscle groups
+              template_id: e.exercise_template_id ? String(e.exercise_template_id) : null,
               sets: ((e.sets as Record<string, unknown>[]) ?? []).map((s) => ({
                 weight_kg: s.weight_kg ?? null, reps: s.reps ?? null, type: s.type ?? null,
               })),
@@ -321,6 +325,39 @@ Deno.serve(async (req) => {
           hevyCount += rows.length;
           const oldest = workouts[workouts.length - 1];
           if (new Date(String(oldest.start_time)) < since || page >= (data.page_count ?? 1)) break;
+        }
+
+        /* ---- exercise library (muscle groups, 0011) — refetched only when a
+                template id we haven't cached shows up (new exercise / first run) ---- */
+        if (seenTemplates.size) {
+          const { data: known } = await svc.from("tr_hevy_exercises").select("template_id").in("template_id", [...seenTemplates]);
+          const knownSet = new Set((known ?? []).map((k) => String(k.template_id)));
+          if ([...seenTemplates].some((t) => !knownSet.has(t))) {
+            const rows: Record<string, unknown>[] = [];
+            let page = 1, pages = 1;
+            do {
+              const r = await fetch(`https://api.hevyapp.com/v1/exercise_templates?page=${page}&pageSize=100`, {
+                headers: { "api-key": settings.hevy_api_key },
+              });
+              if (!r.ok) throw new Error(`exercise_templates HTTP ${r.status}`);
+              const d = await r.json();
+              pages = Number(d.page_count ?? 1);
+              for (const t of (d.exercise_templates ?? []) as Record<string, unknown>[]) {
+                rows.push({
+                  template_id: String(t.id), title: t.title ?? "", type: t.type ?? null,
+                  primary_muscle_group: t.primary_muscle_group ?? null,
+                  secondary_muscle_groups: t.secondary_muscle_groups ?? [],
+                  equipment: t.equipment ?? null, is_custom: !!t.is_custom, updated_at: new Date().toISOString(),
+                });
+              }
+              page++;
+            } while (page <= pages && page <= 20);
+            if (rows.length) {
+              const { error } = await svc.from("tr_hevy_exercises").upsert(rows, { onConflict: "template_id" });
+              if (error) throw new Error(error.message);
+              hevyCatalog = rows.length;
+            }
+          }
         }
       } catch (e) { errors.push(`Hevy: ${String(e)}`); }
     }
@@ -353,7 +390,7 @@ Deno.serve(async (req) => {
     }
 
     await svc.from("tr_settings").update({ last_synced_at: new Date().toISOString() }).eq("user_id", userId);
-    return json({ intervals: intervalsCount, removed: intervalsRemoved, wellness: wellnessCount, custom_zoned: customZoned, strava: stravaCount, hevy: hevyCount, matched, errors });
+    return json({ intervals: intervalsCount, removed: intervalsRemoved, wellness: wellnessCount, custom_zoned: customZoned, strava: stravaCount, hevy: hevyCount, hevy_catalog: hevyCatalog, matched, errors });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

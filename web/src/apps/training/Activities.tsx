@@ -8,7 +8,7 @@ import { useState } from "react";
 import { CalendarRange, RefreshCw, Pencil } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, EmptyState, Modal, cn } from "../../components/ui";
-import { type TrWorkout, type TrWellness, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
+import { type TrWorkout, type TrWellness, type HevySet, type HevyExercise, hevyExercises, workingSets, tonnageKg, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
 
 const WEEKS_SHOWN = 6;
 
@@ -53,11 +53,10 @@ const rangeLabel = (weekStart: string) => {
     : `${a.getDate()} ${MONTHS[a.getMonth()]} – ${b.getDate()} ${MONTHS[b.getMonth()]}`;
 };
 
-interface HevySet { weight_kg?: number | null; reps?: number | null; type?: string }
 interface Detail {
   icu_hr_zone_times?: number[]; icu_hr_zones?: number[];
   average_cadence?: number;
-  exercises?: { name: string; sets: HevySet[] }[]; // Hevy lifts (tr-sync stores every set)
+  exercises?: HevyExercise[]; // Hevy lifts (tr-sync stores every set) — helpers in lib.ts
 }
 
 /* "×3 Barbell Bench Press" — working sets only (Hevy tags warm-ups); hover shows
@@ -66,11 +65,6 @@ const setLabel = (st: HevySet) => {
   const core = st.weight_kg != null && st.weight_kg > 0 ? `${st.weight_kg} kg × ${st.reps ?? "?"}` : `${st.reps ?? "?"} reps`;
   return st.type && st.type !== "normal" ? `${core} (${st.type})` : core;
 };
-const workingSets = (sets: HevySet[]) => sets.filter((st) => st.type !== "warmup").length;
-/* Volume the way Hevy shows it: Σ weight × reps over EVERY set (warm-ups included),
-   so the card's number matches the one in the Hevy app. Bodyweight sets add 0. */
-const tonnageKg = (exs: Detail["exercises"]) =>
-  (exs ?? []).reduce((t, ex) => t + ex.sets.reduce((a, st) => a + (st.weight_kg ?? 0) * (st.reps ?? 0), 0), 0);
 
 const workoutDay = (w: TrWorkout) => localISO(new Date(w.started_at));
 
@@ -126,7 +120,7 @@ export default function Activities() {
 
   // Manual "pull everything now". tr-sync fetches intervals.icu (runs + wellness)
   // AND Hevy (lifts) in one call and reconciles deletions, so one button covers
-  // both sources. Same wiring as the Week tab's button.
+  // both sources. Same wiring as the Overview tab's button.
   const qc = useQueryClient();
   const sync = useMutation({
     mutationFn: async () => {
@@ -137,7 +131,7 @@ export default function Activities() {
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tr-activities"] });
       qc.invalidateQueries({ queryKey: ["tr-activities-wellness"] });
-      qc.invalidateQueries({ queryKey: ["tr-week"] }); // the Week tab reads the same rows
+      qc.invalidateQueries({ queryKey: ["tr-week"] }); // the Overview tab reads the same rows
     },
   });
   const syncBar = (
@@ -298,7 +292,7 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
   const sum = (list: TrWorkout[], sports: string[], field: "duration_min" | "distance_km") =>
     list.filter((w) => sports.includes(w.sport)).reduce((a, w) => a + (Number(w[field]) || 0), 0);
   const tonnage = (list: TrWorkout[]) =>
-    list.filter((w) => GYM.includes(w.sport)).reduce((a, w) => a + tonnageKg((w.data as Detail).exercises), 0);
+    list.filter((w) => GYM.includes(w.sport)).reduce((a, w) => a + tonnageKg(hevyExercises(w)), 0);
   // Per-sport buckets. All four rows always show — an empty sport reads "0m · 0.0 km"
   // (Jared wants the zero visible, not a hidden row).
   const stats = (list: TrWorkout[]) => ({
@@ -602,7 +596,7 @@ const startClock = (iso: string) => {
    (exercise name + per-set weight/reps/type) — see training/CLAUDE.md for the
    fields Hevy offers beyond that (notes, RPE, muscle groups…) if wanted later. */
 function LiftDetail({ w, onClose }: { w: TrWorkout; onClose: () => void }) {
-  const exs = (w.data as Detail).exercises ?? [];
+  const exs = hevyExercises(w);
   const all = exs.flatMap((e) => e.sets);
   const totalReps = all.reduce((a, st) => a + (st.reps ?? 0), 0);
   const volume = tonnageKg(exs);
@@ -722,7 +716,7 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
     const range = i === 0 ? `≤${ceilings[0]}` : `${ceilings[i - 1] + 1}–${ceilings[i]}`;
     return `Z${i + 1} (${range} bpm) · ${time}`;
   };
-  const tonnage = tonnageKg(d.exercises);
+  const tonnage = tonnageKg(hevyExercises(w));
   const pace = w.sport === "run" && w.distance_km && w.duration_min
     ? Number(w.duration_min) / Number(w.distance_km) : null;
 

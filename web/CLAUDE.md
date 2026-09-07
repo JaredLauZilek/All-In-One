@@ -15,8 +15,9 @@ the two previously separate frontends on 2026-08-17:
   `docs/lzd-teardown.sql`)
 - **Earnings Vol Scanner** (`/evs`) — added 2026-08-26; backend in `evs-scanner/`
   (edge fn `evs-scan` does all the math — see that folder's CLAUDE.md)
-- **Training** (`/training`) — added 2026-09-05; Hyrox/endurance hub: weekly plan
-  generation, Strava+Hevy sync, Google Calendar push, Telegram bot. Backend in
+- **Training** (`/training`) — added 2026-09-05; Hyrox/endurance hub (tabs: Overview
+  [was "Week" until 2026-09-07] / Activities / Races / Settings): weekly plan
+  generation, intervals.icu+Hevy sync, Google Calendar push, Telegram bot. Backend in
   `training/` (edge fns tr-connect / tr-sync / tr-plan-week / tr-telegram-webhook —
   see that folder's CLAUDE.md before touching anything tr_)
 
