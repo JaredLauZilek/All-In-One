@@ -382,12 +382,14 @@ const fmtClock = (s: number) => {
   return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
 };
 
-/* One measure per chart (never a dual axis). 2px line, gaps where the stream
-   has no value, recessive grid, crosshair + tooltip on hover. Pace is drawn
-   inverted (faster = higher) like intervals.icu, with a 2–98 percentile range so
-   one GPS spike can't flatten the whole line. */
-function StreamChart({ points, field, invert, lineClass, dotClass, fmt, unit, title }: {
-  points: RunPoint[]; field: "hr" | "pace"; invert?: boolean; lineClass: string; dotClass: string;
+/* One measure per chart (never a dual axis). 2px line over a soft area fill,
+   gaps only where the stream has no value, recessive grid, crosshair + tooltip
+   on hover. Pace is drawn inverted (faster = higher) like Garmin/intervals.icu;
+   tr-activity floors pace at 20:00/km so walking/standing shows as a dip to the
+   floor, not a hole. The top of the pace axis is the 1st-percentile pace so a
+   single GPS spike can't stretch the scale. */
+function StreamChart({ points, field, invert, lineClass, areaClass, dotClass, fmt, unit, title }: {
+  points: RunPoint[]; field: "hr" | "pace"; invert?: boolean; lineClass: string; areaClass: string; dotClass: string;
   fmt: (v: number) => string; unit: string; title: string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
@@ -395,7 +397,7 @@ function StreamChart({ points, field, invert, lineClass, dotClass, fmt, unit, ti
   if (defined.length < 2) return <p className="text-xs text-slate-400">{title}: no data in this recording.</p>;
   const sorted = [...defined].sort((a, b) => a - b);
   const q = (f: number) => sorted[Math.floor((sorted.length - 1) * f)];
-  let lo = invert ? q(0.02) : sorted[0], hi = invert ? q(0.98) : sorted[sorted.length - 1];
+  let lo = invert ? q(0.01) : sorted[0], hi = sorted[sorted.length - 1];
   const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
   const W = 600, H = 150, L = 40, R = 10, T = 10, B = 20;
   const tMax = points[points.length - 1].t || 1;
@@ -404,12 +406,19 @@ function StreamChart({ points, field, invert, lineClass, dotClass, fmt, unit, ti
     const c = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
     return invert ? T + c * (H - T - B) : H - B - c * (H - T - B);
   };
-  let d = ""; let pen = false;
-  for (const p of points) {
-    const v = p[field];
-    if (v == null) { pen = false; continue; }
-    d += `${pen ? "L" : "M"}${x(p.t).toFixed(1)},${y(v).toFixed(1)}`; pen = true;
-  }
+  // Segments of consecutive defined points → one line path + one area path each.
+  const base = invert ? H - B : H - B; // area always drops to the bottom axis
+  let d = "", area = "";
+  let seg: RunPoint[] = [];
+  const flush = () => {
+    if (seg.length < 2) { seg = []; return; }
+    const pts = seg.map((p) => `${x(p.t).toFixed(1)},${y(p[field] as number).toFixed(1)}`);
+    d += `M${pts.join("L")}`;
+    area += `M${x(seg[0].t).toFixed(1)},${base}L${pts.join("L")}L${x(seg[seg.length - 1].t).toFixed(1)},${base}Z`;
+    seg = [];
+  };
+  for (const p of points) { if (p[field] == null) flush(); else seg.push(p); }
+  flush();
   const yTicks = [lo + pad, (lo + hi) / 2, hi - pad];
   const stepMin = tMax > 5400 ? 15 : tMax > 2400 ? 10 : 5;
   const xTicks: number[] = []; for (let t = stepMin * 60; t < tMax; t += stepMin * 60) xTicks.push(t);
@@ -436,6 +445,7 @@ function StreamChart({ points, field, invert, lineClass, dotClass, fmt, unit, ti
           {xTicks.map((t) => (
             <text key={t} x={x(t)} y={H - 6} textAnchor="middle" className="fill-slate-400 font-mono" fontSize={9}>{t / 60}m</text>
           ))}
+          <path d={area} className={areaClass} stroke="none" />
           <path d={d} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" className={lineClass} />
           {hp && hv != null && (
             <g>
@@ -522,9 +532,9 @@ function RunDetail({ w, onClose }: { w: TrWorkout; onClose: () => void }) {
         {detail.data && (
           <>
             <StreamChart points={detail.data.points} field="hr" title="Heart rate" unit="bpm"
-              lineClass="stroke-red-500" dotClass="fill-red-500" fmt={(v) => String(Math.round(v))} />
+              lineClass="stroke-red-500" areaClass="fill-red-500/10" dotClass="fill-red-500" fmt={(v) => String(Math.round(v))} />
             <StreamChart points={detail.data.points} field="pace" invert title="Pace" unit="/km"
-              lineClass="stroke-sky-500" dotClass="fill-sky-500" fmt={fmtSecPace} />
+              lineClass="stroke-sky-500" areaClass="fill-sky-500/15" dotClass="fill-sky-500" fmt={fmtSecPace} />
           </>
         )}
 

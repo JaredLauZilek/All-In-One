@@ -24,7 +24,12 @@ const svc = createClient(Deno.env.get("SUPABASE_URL")!, Deno.env.get("SUPABASE_S
 // A 90-minute run is ~5,400 one-second samples; the popup chart is ~600px
 // wide, so bucket-average down to this many points (≈25 KB cached per run).
 const MAX_POINTS = 600;
-const MIN_MOVING_MPS = 0.5; // below this = standing still; pace would explode
+const MIN_MOVING_MPS = 0.5; // (laps) below this = standing still; pace would explode
+// Pace floor, like Garmin's chart: standing / walking samples are drawn AT the
+// floor (20:00/km) instead of becoming gaps, so rest intervals read as dips.
+const PACE_FLOOR = 1200;
+// Bump when the cached shape/semantics change — stale caches refetch themselves.
+const DETAIL_VERSION = 2;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -45,7 +50,7 @@ Deno.serve(async (req) => {
     const { data: w } = await svc.from("tr_workouts")
       .select("id, source, external_id, detail").eq("id", id).eq("user_id", userId).maybeSingle();
     if (!w) return json({ error: "workout not found" }, 404);
-    if (w.detail && !body.refresh) return json(w.detail);
+    if (w.detail && (w.detail as { v?: number }).v === DETAIL_VERSION && !body.refresh) return json(w.detail);
     if (w.source !== "intervals") return json({ error: "no stream source for this workout" }, 400);
 
     const { data: settings } = await svc.from("tr_settings")
@@ -64,19 +69,20 @@ Deno.serve(async (req) => {
     const time = col("time"), hr = col("heartrate"), vel = col("velocity_smooth"), dist = col("distance");
     if (!time || time.length < 2) throw new Error("no time stream");
 
-    /* ---- downsample: bucket-average HR and velocity, pace = 1000 / v (s/km) ---- */
+    /* ---- downsample: bucket-average HR and per-sample pace (s/km, floored) ---- */
     const n = time.length, k = Math.max(1, Math.ceil(n / MAX_POINTS));
     const points: { t: number; hr: number | null; pace: number | null; d: number | null }[] = [];
     for (let i = 0; i < n; i += k) {
-      let hs = 0, hc = 0, vs = 0, vc = 0;
+      let hs = 0, hc = 0, ps = 0, pc = 0;
       for (let j = i; j < Math.min(n, i + k); j++) {
         const h = hr?.[j]; if (h != null && h > 0) { hs += h; hc++; }
-        const v = vel?.[j]; if (v != null && v > MIN_MOVING_MPS) { vs += v; vc++; }
+        const v = vel?.[j];
+        if (v != null) { ps += Math.min(PACE_FLOOR, v > 0 ? 1000 / v : PACE_FLOOR); pc++; }
       }
       points.push({
         t: Number(time[i]),
         hr: hc ? Math.round(hs / hc) : null,
-        pace: vc ? Math.round(1000 / (vs / vc)) : null,
+        pace: pc ? Math.round(ps / pc) : null,
         d: dist?.[i] != null ? Math.round(Number(dist[i])) : null,
       });
     }
@@ -99,7 +105,7 @@ Deno.serve(async (req) => {
       });
     }
 
-    const detail = { points, laps, samples: n, fetched_at: new Date().toISOString() };
+    const detail = { v: DETAIL_VERSION, points, laps, samples: n, pace_floor: PACE_FLOOR, fetched_at: new Date().toISOString() };
     const { error } = await svc.from("tr_workouts").update({ detail }).eq("id", id);
     if (error) throw new Error(error.message);
     return json(detail);
