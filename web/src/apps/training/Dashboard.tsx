@@ -374,7 +374,7 @@ function WeeklyLineChart({ series, fmt, unit, lineClass, areaClass, dotClass }: 
   series: WeekPoint[]; fmt: (v: number) => string; unit: string; lineClass: string; areaClass: string; dotClass: string;
 }) {
   // B leaves clear air between the area's baseline and the week labels.
-  const W = 320, H = 136, L = 10, R = 10, T = 16, B = 32;
+  const W = 320, H = 126, L = 10, R = 10, T = 16, B = 24;
   const { hover, onMove, clear } = useNearest(series.length, L, R, W);
   const max = Math.max(...series.map((s) => s.value), 1) * 1.15;
   const x = (i: number) => L + (i * (W - L - R)) / (series.length - 1);
@@ -442,7 +442,7 @@ function WeeklyTotalCard({ title, subtitle, unit, fmt, workouts, currentWeek, ke
             <p className="text-[10px] text-slate-400">last week · this week so far {fmt(soFar)}</p>
           </div>
         } />
-      <div className="px-5 pb-4">
+      <div className="px-5 pb-4 pt-4">
         <WeekDelta cur={cur} prev={prev} fmt={fmt} unit={unit} />
         <div className="mt-2">
           <WeeklyLineChart series={series} fmt={fmt} unit={unit} lineClass={lineClass} areaClass={areaClass} dotClass={dotClass} />
