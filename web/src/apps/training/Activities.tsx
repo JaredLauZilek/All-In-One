@@ -295,13 +295,12 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
     ride: { min: sum(list, ["ride"], "duration_min"), amount: sum(list, ["ride"], "distance_km") },
     gym: { min: sum(list, GYM, "duration_min"), amount: tonnage(list) },
     totalMin: sum(list, [...CARDIO, ...GYM], "duration_min"),
-    cardioKm: sum(list, CARDIO, "distance_km"),
   });
   const cur = stats(workouts);
   const prev = prevWorkouts ? stats(prevWorkouts) : null;
 
   return (
-    <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-3.5 md:border-b-0 md:border-r">
+    <div className="flex flex-col border-b border-slate-100 bg-slate-50/60 px-4 py-3.5 md:border-b-0 md:border-r">
       <div className="flex items-baseline gap-2">
         <h3 className="text-sm font-bold text-slate-900">Week {isoWeekNo(weekStart)}</h3>
         <span className="text-[11px] text-slate-400">{rangeLabel(weekStart)}</span>
@@ -314,9 +313,7 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
         <div className="mt-3 space-y-2.5">
           <div className="flex items-baseline justify-between">
             <span className="text-xs font-medium text-slate-500">Total</span>
-            <span className="font-mono text-sm font-semibold text-slate-900">
-              {fmtDur(cur.totalMin)}{cur.cardioKm > 0 && <span className="text-slate-400"> · {cur.cardioKm.toFixed(1)} km</span>}
-            </span>
+            <span className="font-mono text-sm font-semibold text-slate-900">{fmtDur(cur.totalMin)}</span>
           </div>
           <div className="space-y-2.5 border-t border-slate-200/60 pt-2.5">
             <SportRow emoji="🏃" label="Run" unit="km" decimals={1} min={cur.run.min} amount={cur.run.amount} prev={prev && prev.run} />
@@ -324,8 +321,10 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
             <SportRow emoji="🚴" label="Cycle" unit="km" decimals={1} min={cur.ride.min} amount={cur.ride.amount} prev={prev && prev.ride} />
             <SportRow emoji="🏋️" label="Gym" unit="kg" decimals={0} min={cur.gym.min} amount={cur.gym.amount} prev={prev && prev.gym} />
           </div>
-          {prev && <p className="pt-1 text-[10px] text-slate-400">vs week {isoWeekNo(addDaysISO(weekStart, -7))}</p>}
         </div>
+      )}
+      {prev && workouts.length > 0 && (
+        <p className="mt-auto pt-4 text-[10px] text-slate-400">vs week {isoWeekNo(addDaysISO(weekStart, -7))}</p>
       )}
     </div>
   );
