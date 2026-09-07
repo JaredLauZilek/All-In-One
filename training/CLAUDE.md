@@ -62,10 +62,14 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   hid a morning Garmin walk on a Pull-day.
 - **Overview tab** (`/training`, the old "Week" tab). Layout (2026-09-07, Jared:
   "everything important was crammed into the right column"): **row 1** = a compact
-  dark race card (2 cols) + four half-width stat cards (6-col grid on xl); **rows 2+**
-  = an equal-weight card grid (3 cols on xl): **Week of …** (compact session list;
-  Sync button; click anywhere → the week popup), Recovery, Run km, Weight lifted,
-  Set count per muscle, Volume progression. **The week popup** (`WeekPlanModal`) is
+  dark race card (2 cols) + four half-width stat cards (6-col grid on xl); **row 2**
+  = **Week of …** full width as seven day columns (Sync button; click anywhere → the
+  week popup); **row 3** = three equal-height chart cards: Weight lifted · Set count
+  per muscle · Run km. Recovery and Volume progression cards were removed
+  2026-09-07 (wellness still shows per day on the Activities tab). The muscle card
+  keeps the same chart box as its neighbours; muscles are chosen in a scrollable
+  dropdown (checkbox + period total per muscle, top 6 on by default) instead of a
+  legend table. **The week popup** (`WeekPlanModal`) is
   where the week is structured: per day, sessions can be edited inline (day, sport,
   km, minutes, title, detail), marked done/skipped/re-opened, deleted, or added
   ("add session" under each day); Sync + Plan next week live in its header. Every

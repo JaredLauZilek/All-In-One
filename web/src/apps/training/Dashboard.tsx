@@ -12,7 +12,7 @@ import { RefreshCw, Sparkles, Check, X, CalendarDays, Plus, Trash2, RotateCcw } 
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, StatusBadge, Modal, Input, Select, Textarea, cn } from "../../components/ui";
 import {
-  type TrPlanWeek, type TrRace, type TrSession, type TrWorkout, type TrWellness, type TrHevyExercise,
+  type TrPlanWeek, type TrRace, type TrSession, type TrWorkout, type TrHevyExercise,
   RACE_TYPES, SPORT_EMOJI, BLOCK_LABELS, DAY_NAMES,
   mondayOf, addDaysISO, daysUntil, localISO, useTrSettings,
   hevyExercises, workingSets, tonnageKg, muscleLabel,
@@ -26,7 +26,7 @@ function useWeekData(weekStart: string) {
     queryKey: ["tr-week", weekStart],
     queryFn: async () => {
       const weekEnd = addDaysISO(weekStart, 6);
-      const [race, week, sessions, weeks, workouts, wellness] = await Promise.all([
+      const [race, week, sessions, weeks, workouts] = await Promise.all([
         supabase.from("tr_races").select("*").eq("status", "upcoming")
           .order("race_date", { ascending: true, nullsFirst: false }).limit(1).maybeSingle(),
         supabase.from("tr_plan_weeks").select("*").eq("week_start", weekStart).maybeSingle(),
@@ -37,7 +37,6 @@ function useWeekData(weekStart: string) {
         supabase.from("tr_workouts").select("*")
           .gte("started_at", addDaysISO(weekStart, -7 * 11) + "T00:00:00+08:00")
           .order("started_at", { ascending: false }),
-        supabase.from("tr_wellness").select("*").order("day", { ascending: false }).limit(14),
       ]);
       return {
         race: race.data as TrRace | null,
@@ -45,7 +44,6 @@ function useWeekData(weekStart: string) {
         sessions: (sessions.data ?? []) as TrSession[],
         allWeeks: (weeks.data ?? []) as TrPlanWeek[],
         workouts: (workouts.data ?? []) as TrWorkout[],
-        wellness: (wellness.data ?? []) as TrWellness[],
       };
     },
   });
@@ -123,16 +121,16 @@ export default function Dashboard() {
           accent="bg-slate-100 text-slate-600" icon={<span className="text-base">⏱️</span>} />
       </div>
 
-      {/* Rows 2+: equal-weight cards — the week plan is one of them */}
-      <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
-        <WeekCard weekStart={weekStart} week={data?.week ?? null} sessions={sessions}
-          onOpen={() => setPlanOpen(true)} onSync={() => sync.mutate()} syncing={sync.isPending}
-          syncResult={sync.isSuccess ? sync.data : null} syncError={sync.isError ? String(sync.error) : null} />
-        <RecoveryCard wellness={data?.wellness ?? []} />
-        <RunKmCard workouts={data?.workouts ?? []} currentWeek={weekStart} />
+      {/* Row 2: the week, full width (day columns) — click → popup editor */}
+      <WeekCard weekStart={weekStart} week={data?.week ?? null} sessions={sessions}
+        onOpen={() => setPlanOpen(true)} onSync={() => sync.mutate()} syncing={sync.isPending}
+        syncResult={sync.isSuccess ? sync.data : null} syncError={sync.isError ? String(sync.error) : null} />
+
+      {/* Row 3: the three charts, equal height */}
+      <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
         <LiftedCard workouts={data?.workouts ?? []} currentWeek={weekStart} />
         <MuscleGroupCard workouts={data?.workouts ?? []} currentWeek={weekStart} />
-        <ProgressionCard weeks={data?.allWeeks ?? []} workouts={data?.workouts ?? []} currentWeek={weekStart} />
+        <RunKmCard workouts={data?.workouts ?? []} currentWeek={weekStart} />
       </div>
 
       {planOpen && (
@@ -184,11 +182,13 @@ function WeekCard({ weekStart, week, sessions, onOpen, onSync, syncing, syncResu
   syncResult: { intervals: number; wellness: number; hevy: number; matched: number; removed: number; errors: string[] } | null;
   syncError: string | null;
 }) {
+  const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
+  const today = localISO(new Date());
   return (
-    <Card className="flex cursor-pointer flex-col transition hover:border-slate-300" >
-      <div onClick={onOpen} className="flex-1">
+    <Card className="cursor-pointer transition hover:border-slate-300">
+      <div onClick={onOpen}>
         <CardHeader title={`Week of ${weekStart}`}
-          subtitle={week ? `${BLOCK_LABELS[week.block] ?? week.block} · ${week.generated_by}` : "No plan yet"}
+          subtitle={week ? `${BLOCK_LABELS[week.block] ?? week.block} · ${week.generated_by}${week.focus ? ` · ${week.focus}` : ""}` : "No plan yet — open to generate the week"}
           action={
             <Button variant="secondary" onClick={(e) => { e.stopPropagation(); onSync(); }} loading={syncing}>
               <RefreshCw className="h-4 w-4" /> Sync
@@ -201,29 +201,31 @@ function WeekCard({ weekStart, week, sessions, onOpen, onSync, syncing, syncResu
             {syncResult.removed ? ` · removed ${syncResult.removed}` : ""}{syncResult.errors?.length ? ` · ⚠ ${syncResult.errors.join("; ")}` : ""}
           </p>
         )}
-        {sessions.length === 0 ? (
-          <p className="px-5 py-6 text-center text-sm text-slate-400">No sessions — open to generate the week.</p>
-        ) : (
-          <ul className="divide-y divide-slate-100">
-            {sessions.map((s) => {
-              const d = new Date(s.session_date + "T00:00:00");
-              const isToday = s.session_date === localISO(new Date());
-              return (
-                <li key={s.id} className={cn("flex items-center gap-2.5 px-5 py-2", isToday && "bg-indigo-50/40")}>
-                  <span className="w-7 shrink-0 font-mono text-[10px] font-semibold uppercase text-slate-400">{DAY_NAMES[(d.getDay() + 6) % 7]}</span>
-                  <span className="text-sm">{SPORT_EMOJI[s.sport] ?? "•"}</span>
-                  <span className={cn("min-w-0 flex-1 truncate text-sm", s.status === "skipped" ? "text-slate-400 line-through" : "font-medium text-slate-800")}>{s.title}</span>
-                  <span className="shrink-0 font-mono text-[10px] text-slate-400">{sessionMeta(s)}</span>
-                  <span className="w-4 shrink-0 text-center text-xs">
-                    {s.status === "done" ? <span className="text-emerald-600">✓</span> : s.status === "skipped" ? <span className="text-red-500">✗</span> : ""}
-                  </span>
-                </li>
-              );
-            })}
-          </ul>
-        )}
+        <div className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-4 lg:grid-cols-7">
+          {days.map((d) => {
+            const dt = new Date(d + "T00:00:00");
+            const list = sessions.filter((x) => x.session_date === d);
+            return (
+              <div key={d} className={cn("min-h-[6.5rem] bg-surface px-3 py-2.5", d === today && "bg-indigo-50/40")}>
+                <p className={cn("mb-1.5 text-[10px] font-semibold uppercase", d === today ? "text-indigo-600" : "text-slate-400")}>
+                  {DAY_NAMES[(dt.getDay() + 6) % 7]} <span className="font-mono">{d.slice(8)}</span>
+                </p>
+                {list.length === 0 ? <p className="text-[11px] text-slate-300">—</p> : list.map((x) => (
+                  <div key={x.id} className="mb-1.5">
+                    <p className={cn("text-xs leading-snug", x.status === "skipped" ? "text-slate-400 line-through" : "font-medium text-slate-800")}>
+                      {SPORT_EMOJI[x.sport] ?? "•"} {x.title}
+                      {x.status === "done" && <span className="ml-1 text-emerald-600">✓</span>}
+                      {x.status === "skipped" && <span className="ml-1 text-red-500">✗</span>}
+                    </p>
+                    {sessionMeta(x) && <p className="font-mono text-[10px] text-slate-400">{sessionMeta(x)}</p>}
+                  </div>
+                ))}
+              </div>
+            );
+          })}
+        </div>
+        <p className="border-t border-slate-100 px-5 py-2 text-center text-[10px] text-slate-400">Click to open, edit and design the week</p>
       </div>
-      <p onClick={onOpen} className="border-t border-slate-100 px-5 py-2.5 text-center text-[11px] text-slate-400">Click to open, edit and design the week</p>
     </Card>
   );
 }
@@ -355,86 +357,6 @@ function SessionForm({ initial, weekDays, busy, onSave, onCancel }: {
   );
 }
 
-/* ---------------- recovery (Garmin wellness via intervals.icu) ---------------- */
-function RecoveryCard({ wellness }: { wellness: TrWellness[] }) {
-  if (wellness.length === 0) return null; // feed not connected / no data yet
-  const latest = wellness[0];
-  const avg = (pick: (w: TrWellness) => number | null) => {
-    const vals = wellness.map(pick).filter((v): v is number => v != null).map(Number);
-    return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : null;
-  };
-  const avgHrv = avg((w) => w.hrv), avgRhr = avg((w) => w.resting_hr);
-  const metric = (label: string, value: string, tone?: "good" | "bad") => (
-    <div>
-      <p className="text-[11px] font-medium text-slate-500">{label}</p>
-      <p className={cn("mt-0.5 font-mono text-lg font-semibold",
-        tone === "good" ? "text-emerald-600" : tone === "bad" ? "text-red-600" : "text-slate-900")}>{value}</p>
-    </div>
-  );
-  const hrvTone = latest.hrv != null && avgHrv != null
-    ? (Number(latest.hrv) >= avgHrv * 0.95 ? "good" : "bad") : undefined;
-  const rhrTone = latest.resting_hr != null && avgRhr != null
-    ? (Number(latest.resting_hr) <= avgRhr * 1.05 ? "good" : "bad") : undefined;
-  return (
-    <Card>
-      <CardHeader title="Recovery" subtitle={`Garmin wellness · latest ${latest.day} (vs 14-day avg)`} />
-      <div className="grid grid-cols-3 gap-3 px-5 py-4">
-        {metric("HRV", latest.hrv != null ? `${Math.round(Number(latest.hrv))} ms` : "—", hrvTone)}
-        {metric("Resting HR", latest.resting_hr != null ? `${Math.round(Number(latest.resting_hr))} bpm` : "—", rhrTone)}
-        {metric("Sleep", latest.sleep_secs != null ? `${(Number(latest.sleep_secs) / 3600).toFixed(1)} h` : "—")}
-      </div>
-    </Card>
-  );
-}
-
-/* ---------------- volume progression bars ---------------- */
-function ProgressionCard({ weeks, workouts, currentWeek }: {
-  weeks: TrPlanWeek[]; workouts: TrWorkout[]; currentWeek: string;
-}) {
-  const shown = weeks.slice(-10);
-  const maxKm = Math.max(10, ...shown.map((w) => Number(w.planned_km) || 0));
-  const actualFor = (weekStart: string) => {
-    const end = addDaysISO(weekStart, 6);
-    return workouts.filter((w) => w.sport === "run" &&
-      w.started_at.slice(0, 10) >= weekStart && w.started_at.slice(0, 10) <= end)
-      .reduce((a, w) => a + (Number(w.distance_km) || 0), 0);
-  };
-  return (
-    <Card>
-      <CardHeader title="Volume progression" subtitle="Run km per plan week — bar = planned, lime = actually run" />
-      {shown.length === 0 ? (
-        <p className="px-5 py-6 text-center text-sm text-slate-400">Generate your first week to start the graph.</p>
-      ) : (
-        <div className="space-y-2.5 px-5 py-4">
-          {shown.map((w) => {
-            const planned = Number(w.planned_km) || 0;
-            const actual = actualFor(w.week_start);
-            const isCurrent = w.week_start === currentWeek;
-            return (
-              <div key={w.id}>
-                <div className="mb-1 flex items-baseline justify-between">
-                  <span className={cn("font-mono text-[11px]", isCurrent ? "font-bold text-slate-900" : "text-slate-400")}>
-                    {w.week_start.slice(5)}{isCurrent && " ← now"}
-                  </span>
-                  <span className="font-mono text-[11px] text-slate-500">
-                    {actual > 0 ? `${actual.toFixed(0)}/` : ""}{planned} km · {BLOCK_LABELS[w.block] ?? w.block}
-                  </span>
-                </div>
-                <div className="relative h-2.5 overflow-hidden rounded-full bg-slate-100">
-                  <div className="absolute inset-y-0 left-0 rounded-full bg-slate-300"
-                    style={{ width: `${Math.min(100, (planned / maxKm) * 100)}%` }} />
-                  <div className="absolute inset-y-0 left-0 rounded-full bg-accent"
-                    style={{ width: `${Math.min(100, (actual / maxKm) * 100)}%` }} />
-                </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
-    </Card>
-  );
-}
-
 /* ---------------- weekly totals: line charts ---------------- */
 /* Headline = LAST COMPLETED week (Jared: a Monday showing "0 km" is
    discouraging); the in-progress week is a small "so far" note instead. */
@@ -532,7 +454,7 @@ function WeeklyTotalCard({ title, subtitle, unit, fmt, workouts, currentWeek, ke
   const cur = series[series.length - 1].value, prev = series[series.length - 2].value;
   const soFar = weeklySeries(workouts, currentWeek, 1, keep, pick)[0].value;
   return (
-    <Card>
+    <Card className="flex h-full flex-col">
       <CardHeader title={title} subtitle={subtitle}
         action={
           <div className="text-right">
@@ -540,7 +462,7 @@ function WeeklyTotalCard({ title, subtitle, unit, fmt, workouts, currentWeek, ke
             <p className="text-[10px] text-slate-400">last week · this week so far {fmt(soFar)}</p>
           </div>
         } />
-      <div className="px-5 pb-4 pt-4">
+      <div className="flex flex-1 flex-col justify-end px-5 pb-4 pt-4">
         <WeekDelta cur={cur} prev={prev} fmt={fmt} unit={unit} />
         <div className="mt-2">
           <WeeklyLineChart series={series} fmt={fmt} unit={unit} lineClass={lineClass} areaClass={areaClass} dotClass={dotClass} />
@@ -601,6 +523,7 @@ const fmtSets = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
 function MuscleGroupCard({ workouts, currentWeek }: { workouts: TrWorkout[]; currentWeek: string }) {
   const [weeks, setWeeks] = useState<(typeof RANGE_OPTIONS)[number]>(4);
   const [hidden, setHidden] = useState<Set<string> | null>(null); // null = default (top 6 shown)
+  const [pickerOpen, setPickerOpen] = useState(false);
   const lastWeek = addDaysISO(currentWeek, -7);
   const rangeStart = addDaysISO(lastWeek, -7 * (weeks - 1));
   const lifts = workouts.filter((w) => w.source === "hevy" && workoutDay(w) >= rangeStart && workoutDay(w) <= addDaysISO(lastWeek, 6));
@@ -645,9 +568,10 @@ function MuscleGroupCard({ workouts, currentWeek }: { workouts: TrWorkout[]; cur
   };
   const shown = rows.filter((r) => !isHidden(r.g));
   const labels = Array.from({ length: weeks }, (_, i) => addDaysISO(rangeStart, 7 * i));
+  const totalSets = rows.reduce((a, r) => a + r.total, 0);
 
-  // chart
-  const W = 320, H = 150, L = 22, R = 10, T = 10, B = 18;
+  // chart — same box as the other two cards
+  const W = 320, H = 126, L = 22, R = 10, T = 14, B = 24;
   const { hover, onMove, clear } = useNearest(weeks, L, R, W);
   const maxV = Math.max(2, ...shown.flatMap((r) => r.arr)) * 1.1;
   const x = (i: number) => L + (i * (W - L - R)) / Math.max(1, weeks - 1);
@@ -656,83 +580,92 @@ function MuscleGroupCard({ workouts, currentWeek }: { workouts: TrWorkout[]; cur
   const grid: number[] = []; for (let v = 0; v <= maxV; v += gridStep) grid.push(v);
 
   return (
-    <Card>
-      <CardHeader title="Set count per muscle" subtitle="Working sets · primary 1 · secondary ½ (Hevy's counting)"
+    <Card className="flex h-full flex-col">
+      <CardHeader title="Set count per muscle" subtitle="Weekly working sets · primary 1 · secondary ½"
         action={
-          <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value) as (typeof RANGE_OPTIONS)[number])}
-            className="rounded-full border border-slate-200 bg-surface px-2.5 py-1 text-xs font-medium text-slate-700">
-            {RANGE_OPTIONS.map((n) => <option key={n} value={n}>Last {n} weeks</option>)}
-          </select>
+          <div className="text-right">
+            <p className="font-mono text-lg font-bold leading-tight text-slate-900">{fmtSets(totalSets)} sets</p>
+            <p className="text-[10px] text-slate-400">last {weeks} weeks</p>
+          </div>
         } />
-      {lifts.length === 0 ? (
-        <p className="px-5 py-6 text-center text-sm text-slate-400">No lifts logged in this range.</p>
-      ) : catalog.isPending && ids.length > 0 ? (
-        <p className="px-5 py-6 text-center text-sm text-slate-400">Loading exercise library…</p>
-      ) : (
-        <>
-          <div className="px-5 pt-2"><div className="relative">
-            <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full touch-none select-none"
-              onMouseMove={onMove} onMouseLeave={clear} onTouchStart={onMove} onTouchMove={onMove} onTouchEnd={clear}>
-              {grid.map((v) => (
-                <g key={v}>
-                  <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="stroke-slate-200" strokeWidth={1} strokeDasharray={v === 0 ? undefined : "3 3"} />
-                  <text x={L - 4} y={y(v) + 3} textAnchor="end" fontSize={8} className="fill-slate-400 font-mono">{v}</text>
-                </g>
-              ))}
-              {hover != null && <line x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} className="stroke-slate-300" strokeWidth={1} />}
-              {shown.map((r) => {
-                const c = muscleColor(r.g);
-                const pts = r.arr.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
-                return (
-                  <g key={r.g}>
-                    <path d={`M${pts.join("L")}`} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" className={c.stroke} />
-                    {r.arr.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={i === hover ? 4 : 3} strokeWidth={1.5} className={cn(c.fill, "stroke-surface")} />)}
-                  </g>
-                );
-              })}
-              {labels.map((d, i) => (
-                <text key={d} x={x(i)} y={H - 5} textAnchor={i === 0 ? "start" : i === weeks - 1 ? "end" : "middle"} fontSize={8} className="fill-slate-400 font-mono">{d.slice(5)}</text>
-              ))}
-            </svg>
-            {hover != null && shown.length > 0 && (
-              <div className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 font-mono text-[10px] text-white shadow-sm"
-                style={{ left: `${(x(hover) / W) * 100}%` }}>
-                <p className="mb-0.5 font-semibold">{weekLabel(labels[hover])}</p>
-                {shown.map((r) => (
-                  <p key={r.g} className="flex items-center gap-1.5">
-                    <span className={cn("inline-block h-2 w-2 rounded-full", muscleColor(r.g).bg)} />
-                    <span className="text-white/70">{muscleLabel(r.g)}</span> <b>{fmtSets(r.arr[hover])}</b>
-                  </p>
-                ))}
-              </div>
-            )}
-          </div></div>
-          <div className="mt-2 border-t border-slate-100">
-            <div className="flex justify-between px-5 py-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
-              <span>Muscle</span><span>Sets · {weekLabel(rangeStart).split(" – ")[0]} – {weekLabel(lastWeek).split(" – ")[1]}</span>
-            </div>
-            <ul className="divide-y divide-slate-100">
-              {rows.map((r) => {
-                const c = muscleColor(r.g), off = isHidden(r.g);
-                return (
-                  <li key={r.g}>
-                    <button type="button" onClick={() => toggle(r.g)}
-                      className="flex w-full items-center gap-3 px-5 py-2 text-left hover:bg-slate-50">
-                      <span className={cn("flex h-4 w-4 items-center justify-center rounded-md border text-[10px] font-bold text-white",
-                        off ? "border-slate-300 bg-transparent" : cn("border-transparent", c.bg))}>{off ? "" : "✓"}</span>
-                      <span className={cn("flex-1 text-sm", off ? "text-slate-400" : "text-slate-800")}>{muscleLabel(r.g)}</span>
-                      <span className={cn("font-mono text-sm font-semibold", off ? "text-slate-400" : "text-slate-900")}>{fmtSets(r.total)}</span>
-                    </button>
-                  </li>
-                );
-              })}
-            </ul>
-            {unmapped > 0 && (
-              <p className="px-5 py-2 text-[11px] text-slate-400">{unmapped} sets from exercises not yet in the library — hit Sync to map them.</p>
+      <div className="flex flex-1 flex-col justify-end px-5 pb-4 pt-4">
+        {/* controls: muscle picker (scrollable dropdown) + range */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="relative">
+            <button type="button" onClick={() => setPickerOpen((o) => !o)}
+              className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1 text-[11px] font-medium text-slate-700 hover:bg-slate-200">
+              <span className="flex -space-x-1">
+                {shown.slice(0, 4).map((r) => <span key={r.g} className={cn("inline-block h-2.5 w-2.5 rounded-full ring-1 ring-surface", muscleColor(r.g).bg)} />)}
+              </span>
+              {shown.length} of {rows.length} muscles ▾
+            </button>
+            {pickerOpen && (
+              <>
+                <div className="fixed inset-0 z-10" onClick={() => setPickerOpen(false)} />
+                <div className="absolute left-0 z-20 mt-1 max-h-56 w-60 overflow-y-auto rounded-2xl border border-slate-200/70 bg-surface p-1 shadow-lg">
+                  {rows.length === 0 && <p className="px-3 py-2 text-xs text-slate-400">No lifts in this range.</p>}
+                  {rows.map((r) => {
+                    const c = muscleColor(r.g), off = isHidden(r.g);
+                    return (
+                      <button key={r.g} type="button" onClick={() => toggle(r.g)}
+                        className="flex w-full items-center gap-2.5 rounded-xl px-2.5 py-1.5 text-left hover:bg-slate-50">
+                        <span className={cn("flex h-4 w-4 items-center justify-center rounded-md border text-[10px] font-bold text-white",
+                          off ? "border-slate-300 bg-transparent" : cn("border-transparent", c.bg))}>{off ? "" : "✓"}</span>
+                        <span className={cn("flex-1 text-xs", off ? "text-slate-400" : "text-slate-800")}>{muscleLabel(r.g)}</span>
+                        <span className={cn("font-mono text-xs font-semibold", off ? "text-slate-400" : "text-slate-900")}>{fmtSets(r.total)}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+              </>
             )}
           </div>
-        </>
-      )}
+          <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value) as (typeof RANGE_OPTIONS)[number])}
+            className="rounded-full border border-slate-200 bg-surface px-2.5 py-1 text-[11px] font-medium text-slate-700">
+            {RANGE_OPTIONS.map((n) => <option key={n} value={n}>Last {n} weeks</option>)}
+          </select>
+        </div>
+
+        <div className="relative mt-2">
+          <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full touch-none select-none"
+            onMouseMove={onMove} onMouseLeave={clear} onTouchStart={onMove} onTouchMove={onMove} onTouchEnd={clear}>
+            {grid.map((v) => (
+              <g key={v}>
+                <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="stroke-slate-200" strokeWidth={1} strokeDasharray={v === 0 ? undefined : "3 3"} />
+                <text x={L - 4} y={y(v) + 3} textAnchor="end" fontSize={8} className="fill-slate-400 font-mono">{v}</text>
+              </g>
+            ))}
+            {hover != null && <line x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} className="stroke-slate-300" strokeWidth={1} />}
+            {shown.map((r) => {
+              const c = muscleColor(r.g);
+              const pts = r.arr.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+              return (
+                <g key={r.g}>
+                  <path d={`M${pts.join("L")}`} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" className={c.stroke} />
+                  {r.arr.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={i === hover ? 4 : 3} strokeWidth={1.5} className={cn(c.fill, "stroke-surface")} />)}
+                </g>
+              );
+            })}
+            {labels.map((d, i) => (
+              <text key={d} x={x(i)} y={H - 6} textAnchor={i === 0 ? "start" : i === weeks - 1 ? "end" : "middle"} fontSize={8} className="fill-slate-400 font-mono">{d.slice(5)}</text>
+            ))}
+            {lifts.length === 0 && <text x={W / 2} y={H / 2} textAnchor="middle" fontSize={10} className="fill-slate-400">No lifts in this range</text>}
+          </svg>
+          {hover != null && shown.length > 0 && (
+            <div className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 font-mono text-[10px] text-white shadow-sm"
+              style={{ left: `${(x(hover) / W) * 100}%` }}>
+              <p className="mb-0.5 font-semibold">{weekLabel(labels[hover])}</p>
+              {shown.map((r) => (
+                <p key={r.g} className="flex items-center gap-1.5">
+                  <span className={cn("inline-block h-2 w-2 rounded-full", muscleColor(r.g).bg)} />
+                  <span className="text-white/70">{muscleLabel(r.g)}</span> <b>{fmtSets(r.arr[hover])}</b>
+                </p>
+              ))}
+            </div>
+          )}
+        </div>
+        {unmapped > 0 && <p className="mt-1 text-[10px] text-slate-400">{unmapped} sets from exercises not yet in the library — hit Sync.</p>}
+      </div>
     </Card>
   );
 }
