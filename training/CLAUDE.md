@@ -166,12 +166,17 @@ Telegram ───────── tr-telegram-webhook  (verify_jwt FALSE, sec
 
 ## Plan engine (tr-plan-week)
 
-- **Day distribution** (2026-09-07, after Jared caught a tempo run + heavy Legs
-  stacked on one day with Wednesday empty): lifts inherit last week's weekday from
-  Hevy, so a `deconflict()` pass moves any strength session off a hard-run day
-  (tempo/intervals/hyrox/brick/long) to the nearest free non-rest day BEFORE the
-  Claude pass; the Claude prompt now may move progression sessions' DATES (content
-  stays verbatim) and carries explicit distribution rules.
+- **Day layout MIRRORS the reference week's actuals** (2026-09-07, after Jared
+  caught a tempo run + heavy Legs stacked on one day): lifts land on last week's
+  lift weekdays (from Hevy) AND runs land on last week's run weekdays — classified
+  as long run (the longest), "Post-gym easy Z2" (≤45 min on a lift day; the
+  same-day pairing with the lift is INTENTIONAL — never separate it), or
+  tempo/interval/quality (everything else; Jared's structure puts tempo the day
+  after legs). The race-type template's run/hyrox days are fully replaced whenever
+  a reference week exists; template rest/mobility filler yields to real sessions.
+  A `deconflict()` safety net still moves a strength session off a HARD-run day
+  to the nearest free day; the Claude prompt may move progression sessions'
+  DATES (content verbatim) and carries the structure + distribution rules.
 - **Calendar digestion**: the target week's Google Calendar events (minus our own
   🏋️ events) are fetched via `gcalBusy()` and fed to Claude as `context.calendar`
   — all-day commitments block the day, busy blocks overlapping the training slot

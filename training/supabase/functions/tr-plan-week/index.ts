@@ -293,7 +293,8 @@ async function claudeAdjust(ctx: Record<string, unknown>, sessions: Sess[]): Pro
       system:
         "You are the training-plan adjuster inside a personal training app. You receive a rule-generated week skeleton plus what actually happened recently. Adjust the skeleton ONLY where the data justifies it (missed key sessions → don't stack fatigue; strong compliance → keep the plan; a hard race soon → protect the taper). Keep every session_date within the same week, keep 3–9 sessions, keep total minutes within ±20% of the skeleton, and keep sports within: run, ride, swim, strength, hyrox, brick, mobility, rest, other.\n" +
         "CONTENT RULES: any 'strength' session whose title ends in '(Hevy)' and any long-run session carry Jared's own progression rules (see context.progression_rules) — keep their title, detail, planned_minutes and planned_km VERBATIM; you MAY change their session_date for better distribution. For tempo/interval runs give a concrete preliminary suggestion built from context.last_week_runs; Jared will redesign those by hand. Sharpen other 'detail' text into concrete, personal prescriptions.\n" +
-        "DISTRIBUTION RULES (these caused real complaints — take them seriously): (1) NEVER put a hard run (tempo, intervals, hyrox, brick or the long run) on the same day as a strength session while any other non-rest day that week has nothing — spread the load; (2) avoid leaving a weekday empty while another weekday is double-booked; (3) put easy/mobility days after the hardest days; (4) avoid a heavy LEGS lift the day before the long run when another slot exists.\n" +
+        "JARED'S WEEKLY STRUCTURE (mirror of his actual weeks — preserve it): gym days each carry a short easy post-gym Z2 run on the SAME day as the lift — this pairing is intentional, never separate it; the tempo/quality run goes the DAY AFTER leg day; the long run stays on its usual day. The skeleton already mirrors last week's layout — keep that layout unless his calendar forces a move.\n" +
+        "DISTRIBUTION RULES: (1) NEVER put a HARD run (tempo, intervals, hyrox, brick or the long run) on the same day as a strength session (short easy post-gym Z2 runs are the intended exception); (2) avoid leaving a weekday empty while another weekday is double-booked with hard work; (3) easy days after the hardest days; (4) avoid a heavy LEGS lift the day before the long run when another slot exists.\n" +
         "CALENDAR RULES: context.calendar lists Jared's existing commitments for this week (MYT times; his training slot is around context.session_time for 1–1.5h). Do NOT schedule sessions on days with an all-day commitment; avoid days whose busy blocks overlap the training slot; if the week is so constrained that a compromise is unavoidable, pick the least-bad day and say so in that session's detail.\n" +
         "Respond with ONLY a JSON object: {\"focus\": string, \"sessions\": [{\"session_date\",\"sport\",\"title\",\"detail\",\"planned_minutes\",\"planned_km\",\"intensity\"}]} — no markdown fences, no commentary.",
       messages: [{ role: "user", content: JSON.stringify({ context: ctx, skeleton: sessions }) }],
@@ -402,8 +403,49 @@ Deno.serve(async (req) => {
       sessions = sessions.filter((s) => s.sport !== "strength").concat(liftSessions);
       progression.lifts = liftSessions.map((s) => ({ day: s.session_date, title: s.title, exercises: s.detail.split("\n").length - 1 }));
     }
+    /* runs: MIRROR the reference week's actual layout (Jared's structure,
+       2026-09-07: each gym day carries a short easy post-gym Z2 run on the
+       SAME day; the tempo/quality run goes the day AFTER legs — i.e. on its
+       own actual weekday; long run on its usual day). Replaces the template's
+       run/hyrox days entirely whenever a reference week exists. */
+    const liftDays = new Set(lastLifts.map((w) => mytDay(w.started_at)));
+    const longestRun = lastRuns.filter((w) => w.duration_min).sort((a, b) => Number(b.duration_min) - Number(a.duration_min))[0];
+    if (lastRuns.length && block !== "race") {
+      const mirrored: Sess[] = [];
+      for (const w of lastRuns) {
+        const day = mytDay(w.started_at);
+        const dow = (new Date(day + "T00:00:00Z").getUTCDay() + 6) % 7;
+        const date = iso(addDays(weekStart, dow));
+        const min = Math.round(Number(w.duration_min) || 0), km = Number(w.distance_km) || 0;
+        const pace = km > 0 && min > 0 ? (min / km).toFixed(1) : null;
+        if (w === longestRun) {
+          mirrored.push({ session_date: date, sport: "run", title: "Long run",
+            detail: "progressed below", planned_minutes: min || null, planned_km: km || null, intensity: "easy" });
+        } else if (liftDays.has(day) && min <= 45) {
+          mirrored.push({ session_date: date, sport: "run", title: "Post-gym easy Z2",
+            detail: `${round5(min) || 30} min${km ? ` (~${km} km)` : ""} very easy Z2 straight after lifting — flush the legs, nothing more (same as last week).`,
+            planned_minutes: round5(min) || 30, planned_km: km || null, intensity: "easy" });
+        } else {
+          const nm = String(w.custom_name ?? w.name ?? "Quality run");
+          const isInt = /interval/i.test(nm);
+          mirrored.push({ session_date: date, sport: "run",
+            title: /tempo/i.test(nm) ? "Tempo run" : isInt ? "Interval run" : "Quality run",
+            detail: `Preliminary suggestion from last week's ${nm} (${km ? `${km} km` : `${min} min`}${w.avg_hr ? `, avg HR ${Math.round(Number(w.avg_hr))}` : ""}${pace ? `, ${pace} min/km` : ""}) — slight progression; Jared to finalise the exact structure.`,
+            planned_minutes: min ? round5(min) : 50, planned_km: km || null, intensity: isInt ? "intervals" : "tempo" });
+        }
+      }
+      sessions = sessions.filter((s) => s.sport !== "run" && s.sport !== "hyrox").concat(mirrored);
+      progression.run_layout = mirrored.map((s) => ({ day: s.session_date, title: s.title }));
+    }
+    // a template rest day that now hosts real sessions is no longer a rest day,
+    // and template mobility filler yields to a mirrored hard run on the same day
+    sessions = sessions.filter((s) =>
+      s.sport !== "rest" || !sessions.some((o) => o.session_date === s.session_date && o.sport !== "rest"));
+    sessions = sessions.filter((s) =>
+      s.sport !== "mobility" || !sessions.some((o) => o.session_date === s.session_date && isHard(o)));
+
     // long run: +12 min on last week's longest run; deload week = ~70% (absorb)
-    const lastLong = lastRuns.filter((w) => w.duration_min).sort((a, b) => Number(b.duration_min) - Number(a.duration_min))[0];
+    const lastLong = longestRun;
     const longIdx = sessions.findIndex((s) => s.sport === "run" && /long/i.test(s.title));
     if (lastLong && longIdx !== -1 && block !== "race" && block !== "taper") {
       const D = Number(lastLong.duration_min), K = Number(lastLong.distance_km) || 0;
