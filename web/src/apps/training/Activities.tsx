@@ -66,6 +66,10 @@ const setLabel = (st: HevySet) => {
   return st.type && st.type !== "normal" ? `${core} (${st.type})` : core;
 };
 const workingSets = (sets: HevySet[]) => sets.filter((st) => st.type !== "warmup").length;
+/* Volume the way Hevy shows it: Σ weight × reps over EVERY set (warm-ups included),
+   so the card's number matches the one in the Hevy app. Bodyweight sets add 0. */
+const tonnageKg = (exs: Detail["exercises"]) =>
+  (exs ?? []).reduce((t, ex) => t + ex.sets.reduce((a, st) => a + (st.weight_kg ?? 0) * (st.reps ?? 0), 0), 0);
 
 const workoutDay = (w: TrWorkout) => localISO(new Date(w.started_at));
 const stepsOf = (w: TrWorkout) => {
@@ -323,6 +327,7 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
     return `Z${i + 1} (${range} bpm) · ${time}`;
   };
   const steps = stepsOf(w);
+  const tonnage = tonnageKg(d.exercises);
   const pace = w.sport === "run" && w.distance_km && w.duration_min
     ? Number(w.duration_min) / Number(w.distance_km) : null;
 
@@ -334,6 +339,7 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
       <p className="font-mono font-semibold text-slate-900">
         {SPORT_EMOJI[w.sport] ?? "•"} {w.duration_min ? fmtDur(Number(w.duration_min)) : "—"}
         {w.distance_km ? ` · ${Number(w.distance_km).toFixed(1)} km` : ""}
+        {tonnage > 0 ? ` · ${Math.round(tonnage).toLocaleString()} kg` : ""}
       </p>
       <div className="mt-1 space-y-0.5 font-mono text-slate-500">
         {w.avg_hr != null && <p>❤ {Math.round(Number(w.avg_hr))} bpm</p>}
