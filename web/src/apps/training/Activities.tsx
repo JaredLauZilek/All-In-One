@@ -267,8 +267,7 @@ function SportRow({ emoji, label, min, amount, unit, decimals, prev }: {
       <div className="flex items-baseline justify-between">
         <span className="text-xs text-slate-500">{emoji} {label}</span>
         <span className="font-mono text-xs font-semibold text-slate-800">
-          {fmtDur(min)}
-          {amount > 0 && ` · ${amount.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} ${unit}`}
+          {fmtDur(min)} · {amount.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} {unit}
         </span>
       </div>
       {prev && (amount > 0 || prev.amount > 0) && (
@@ -288,8 +287,8 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
     list.filter((w) => sports.includes(w.sport)).reduce((a, w) => a + (Number(w[field]) || 0), 0);
   const tonnage = (list: TrWorkout[]) =>
     list.filter((w) => GYM.includes(w.sport)).reduce((a, w) => a + tonnageKg((w.data as Detail).exercises), 0);
-  // Per-sport buckets. Run / Gym always show; Swim / Cycle only once they have data
-  // (this week or last) so the card stays short until Jared starts them.
+  // Per-sport buckets. All four rows always show — an empty sport reads "0m · 0.0 km"
+  // (Jared wants the zero visible, not a hidden row).
   const stats = (list: TrWorkout[]) => ({
     run: { min: sum(list, ["run"], "duration_min"), amount: sum(list, ["run"], "distance_km") },
     swim: { min: sum(list, ["swim"], "duration_min"), amount: sum(list, ["swim"], "distance_km") },
@@ -300,7 +299,6 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
   });
   const cur = stats(workouts);
   const prev = prevWorkouts ? stats(prevWorkouts) : null;
-  const show = (k: "swim" | "ride") => cur[k].min > 0 || (prev?.[k].min ?? 0) > 0;
 
   return (
     <div className="border-b border-slate-100 bg-slate-50/60 px-4 py-3.5 md:border-b-0 md:border-r">
@@ -322,8 +320,8 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
           </div>
           <div className="space-y-2.5 border-t border-slate-200/60 pt-2.5">
             <SportRow emoji="🏃" label="Run" unit="km" decimals={1} min={cur.run.min} amount={cur.run.amount} prev={prev && prev.run} />
-            {show("swim") && <SportRow emoji="🏊" label="Swim" unit="km" decimals={1} min={cur.swim.min} amount={cur.swim.amount} prev={prev && prev.swim} />}
-            {show("ride") && <SportRow emoji="🚴" label="Cycle" unit="km" decimals={1} min={cur.ride.min} amount={cur.ride.amount} prev={prev && prev.ride} />}
+            <SportRow emoji="🏊" label="Swim" unit="km" decimals={1} min={cur.swim.min} amount={cur.swim.amount} prev={prev && prev.swim} />
+            <SportRow emoji="🚴" label="Cycle" unit="km" decimals={1} min={cur.ride.min} amount={cur.ride.amount} prev={prev && prev.ride} />
             <SportRow emoji="🏋️" label="Gym" unit="kg" decimals={0} min={cur.gym.min} amount={cur.gym.amount} prev={prev && prev.gym} />
           </div>
           {prev && <p className="pt-1 text-[10px] text-slate-400">vs week {isoWeekNo(addDaysISO(weekStart, -7))}</p>}

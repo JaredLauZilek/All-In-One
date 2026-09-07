@@ -34,7 +34,7 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   activity: scalars + arrays ≤12 long, nulls dropped); lift cards list each
   exercise as "×N name" (working sets, warm-ups excluded) with tonnage Σ weight×reps
   over every set (= Hevy's volume figure); per week: Run / Swim / Cycle / Gym rows
-  (Swim + Cycle appear once they have data); under each, the change vs the previous
+  (all four always shown — an empty sport reads "0m · 0.0 km"); under each, the change vs the previous
   week in the row's headline quantity — km for cardio, kg lifted for gym — as BOTH a
   % and an absolute number ("▲ 45% +9.0 km"). Time is not compared (a "▼ 3% time /
   +368 kg" pair read as a contradiction). Gym bucket =
