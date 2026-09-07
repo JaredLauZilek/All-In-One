@@ -73,7 +73,7 @@ function progressLift(ex: HevyEx): LiftRx | null {
   else { weight = W; reps = 8; }
   return { name: ex.name, sets: work.length, reps, weight_kg: weight, last: `${W > 0 ? `${W} kg × ` : ""}${repsDone}` };
 }
-const rxLine = (r: LiftRx) => `${r.name}: ${r.sets} × ${r.reps}${r.weight_kg != null ? ` @ ${r.weight_kg} kg` : " (bodyweight)"}  (last week ${r.last})`;
+const rxLine = (r: LiftRx) => `${r.name}: ${r.sets} × ${r.reps}${r.weight_kg != null ? ` @ ${r.weight_kg} kg` : " (bodyweight)"}  (last ${r.last})`;
 
 /* Last week's Hevy sessions → next week's strength sessions on the same weekdays,
    each exercise progressed. Replaces the template's generic strength days. */
@@ -86,7 +86,7 @@ function strengthFromHevy(lifts: { name: string | null; started_at: string; dura
     out.push({
       session_date: iso(addDays(weekStart, dow)), sport: "strength",
       title: `${w.name ?? "Lift"} (Hevy)`,
-      detail: `Progression from last week — same weight, next rung (8 → 10 → 12, then +5%):\n${exs.map(rxLine).join("\n")}`,
+      detail: `Progression from your last ${w.name ?? "lift"} session — same weight, next rung (8 → 10 → 12, then +5%):\n${exs.map(rxLine).join("\n")}`,
       planned_minutes: w.duration_min ? round5(Number(w.duration_min)) : 60, planned_km: null, intensity: "steady",
     });
   }
@@ -298,16 +298,30 @@ Deno.serve(async (req) => {
     const daysPerWeek = settings?.days_per_week ?? 6;
     let sessions = skeleton(race?.race_type ?? "other", block, weekStart, runKm, longDay, daysPerWeek);
 
-    /* ---------- Jared's progression rules, from LAST WEEK's actuals ---------- */
-    const prevStart = addDays(weekStart, -7);
-    const { data: lastWeekWorkouts } = await svc.from("tr_workouts")
+    /* ---------- Jared's progression rules, from the most recent actuals ----------
+       Reference = the most recent week WITH data, looking back up to 3 weeks before
+       the target (planning next week on a Monday must not see an empty "last week").
+       Lifts and runs pick their reference week independently. */
+    const lookback = addDays(weekStart, -21);
+    const { data: recentWorkouts } = await svc.from("tr_workouts")
       .select("source, sport, name, custom_name, started_at, duration_min, distance_km, avg_hr, data")
       .eq("user_id", userId)
-      .gte("started_at", prevStart.toISOString()).lt("started_at", new Date(weekStart.getTime() - 8 * 3600_000).toISOString())
+      .gte("started_at", lookback.toISOString()).lt("started_at", new Date(weekStart.getTime() - 8 * 3600_000).toISOString())
       .order("started_at");
-    const lastLifts = (lastWeekWorkouts ?? []).filter((w) => w.source === "hevy");
-    const lastRuns = (lastWeekWorkouts ?? []).filter((w) => w.sport === "run");
-    const progression: Record<string, unknown> = {};
+    const weekOf = (w: { started_at: string }) =>
+      Math.floor((new Date(mytDay(w.started_at) + "T00:00:00Z").getTime() - lookback.getTime()) / (7 * DAY)); // 0..2 (2 = week just before target)
+    const latestWeek = (list: { started_at: string }[]) => (list.length ? Math.max(...list.map(weekOf)) : -1);
+    const hevyAll = (recentWorkouts ?? []).filter((w) => w.source === "hevy");
+    const runAll = (recentWorkouts ?? []).filter((w) => w.sport === "run");
+    const liftWeek = latestWeek(hevyAll), runWeek = latestWeek(runAll);
+    const lastLifts = hevyAll.filter((w) => weekOf(w) === liftWeek);
+    const lastRuns = runAll.filter((w) => weekOf(w) === runWeek);
+    const progression: Record<string, unknown> = {
+      reference: {
+        lifts_week: liftWeek >= 0 ? iso(addDays(lookback, 7 * liftWeek)) : null,
+        runs_week: runWeek >= 0 ? iso(addDays(lookback, 7 * runWeek)) : null,
+      },
+    };
     // lifts: replace the template's generic strength days with Hevy-derived, progressed ones
     const liftSessions = strengthFromHevy(lastLifts, weekStart);
     if (liftSessions.length && block !== "race") {
@@ -326,8 +340,8 @@ Deno.serve(async (req) => {
         ...sessions[longIdx], planned_minutes: target, planned_km: km,
         title: block === "deload" ? "Long run (absorb week)" : "Easy long run",
         detail: block === "deload"
-          ? `${target} min${km ? ` (~${km} km)` : ""} ${easyPace}. Absorb week: shorter than last week's ${Math.round(D)} min — let the last 3 weeks land.`
-          : `${target} min${km ? ` (~${km} km)` : ""} ${easyPace}. +${target - Math.round(D)} min on last week's ${Math.round(D)} min${K ? ` / ${K} km` : ""}.`,
+          ? `${target} min${km ? ` (~${km} km)` : ""} ${easyPace}. Absorb week: shorter than your last long run of ${Math.round(D)} min — let the last 3 weeks land.`
+          : `${target} min${km ? ` (~${km} km)` : ""} ${easyPace}. +${target - Math.round(D)} min on your last long run of ${Math.round(D)} min${K ? ` / ${K} km` : ""}.`,
       };
       progression.long_run = { last_min: Math.round(D), next_min: target, deload: block === "deload" };
     }

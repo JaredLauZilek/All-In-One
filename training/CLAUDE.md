@@ -180,7 +180,9 @@ Telegram ───────── tr-telegram-webhook  (verify_jwt FALSE, sec
 - Regeneration replaces only **status='planned'** rows (done/skipped survive) and
   deletes their old calendar events first.
 - **Jared's progression rules (2026-09-07)** run AFTER the skeleton, BEFORE Claude,
-  from LAST WEEK's actual workouts (the 7 days before the target week):
+  from the most recent week WITH data (up to 3 weeks before the target; lifts and
+  runs pick their reference week independently — planning next week on a Monday must
+  not see an empty "last week"; `progression.reference` reports which weeks were used):
   - **Lifts**: each Hevy session becomes a strength session on the same weekday,
     titled "<Hevy title> (Hevy)", detail = one line per exercise. Rep ladder at the
     SAME weight: 8 → 10 → 12; once every working set hits 12, weight +5% (rounded to
