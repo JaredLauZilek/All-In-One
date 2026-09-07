@@ -8,7 +8,7 @@
 // Calendar when configured). Mid-week changes happen through the Telegram bot.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Sparkles, Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX } from "lucide-react";
+import { RefreshCw, Sparkles, Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX, ChevronLeft, ChevronRight } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, StatusBadge, Modal, Input, Select, Textarea, cn } from "../../components/ui";
 import {
@@ -63,12 +63,31 @@ async function planEdit(actions: PlanAction[]) {
   return data as { applied: string[] };
 }
 
+/* The plan for one week (any week) — what the Week card and popup browse. */
+function usePlanWeek(weekStart: string) {
+  return useQuery({
+    queryKey: ["tr-plan", weekStart],
+    queryFn: async () => {
+      const [week, sessions] = await Promise.all([
+        supabase.from("tr_plan_weeks").select("*").eq("week_start", weekStart).maybeSingle(),
+        supabase.from("tr_planned_sessions").select("*")
+          .gte("session_date", weekStart).lte("session_date", addDaysISO(weekStart, 6)).order("session_date"),
+      ]);
+      return { week: week.data as TrPlanWeek | null, sessions: (sessions.data ?? []) as TrSession[] };
+    },
+  });
+}
+
 export default function Dashboard() {
   const qc = useQueryClient();
   useTrSettings(); // ensures the settings row exists (pairing code, sync targets)
   const weekStart = mondayOf();
   const { data } = useWeekData(weekStart);
-  const invalidate = () => qc.invalidateQueries({ queryKey: ["tr-week"] });
+  // The Week card + popup browse weeks (◀ ▶); stats and charts stay on the current week.
+  // "Plan next week" jumps the view to next week so the result is visible at once.
+  const [viewWeek, setViewWeek] = useState(weekStart);
+  const plan = usePlanWeek(viewWeek);
+  const invalidate = () => { qc.invalidateQueries({ queryKey: ["tr-week"] }); qc.invalidateQueries({ queryKey: ["tr-plan"] }); };
   const [planOpen, setPlanOpen] = useState(false);
 
   const sync = useMutation({
@@ -81,16 +100,15 @@ export default function Dashboard() {
   });
 
   const generate = useMutation({
-    mutationFn: async (which: "this" | "next") => {
-      const target = which === "this" ? weekStart : addDaysISO(weekStart, 7);
+    mutationFn: async (target: string) => {
       const { data: res, error } = await supabase.functions.invoke("tr-plan-week", {
         body: { week_start: target },
       });
       if (error) throw error;
       if ((res as { error?: string })?.error) throw new Error((res as { error: string }).error);
-      return res;
+      return { ...(res as { calendar_pushed: number; generated_by: string; progression?: Record<string, unknown> }), target };
     },
-    onSuccess: invalidate,
+    onSuccess: (res) => { invalidate(); setViewWeek(res.target); },
   });
 
   const sessions = data?.sessions ?? [];
@@ -122,7 +140,8 @@ export default function Dashboard() {
       </div>
 
       {/* Row 2: the week, full width (day columns) — click → popup editor */}
-      <WeekCard weekStart={weekStart} week={data?.week ?? null} sessions={sessions}
+      <WeekCard weekStart={viewWeek} currentWeek={weekStart} week={plan.data?.week ?? null} sessions={plan.data?.sessions ?? []}
+        onPrev={() => setViewWeek(addDaysISO(viewWeek, -7))} onNext={() => setViewWeek(addDaysISO(viewWeek, 7))}
         onOpen={() => setPlanOpen(true)} onSync={() => sync.mutate()} syncing={sync.isPending}
         syncResult={sync.isSuccess ? sync.data : null} syncError={sync.isError ? String(sync.error) : null} />
 
@@ -134,11 +153,12 @@ export default function Dashboard() {
       </div>
 
       {planOpen && (
-        <WeekPlanModal weekStart={weekStart} week={data?.week ?? null} sessions={sessions}
+        <WeekPlanModal weekStart={viewWeek} currentWeek={weekStart} week={plan.data?.week ?? null} sessions={plan.data?.sessions ?? []}
+          onPrev={() => setViewWeek(addDaysISO(viewWeek, -7))} onNext={() => setViewWeek(addDaysISO(viewWeek, 7))}
           onClose={() => setPlanOpen(false)} onChanged={invalidate}
           onSync={() => sync.mutate()} syncing={sync.isPending}
-          onGenerate={() => generate.mutate(data?.week ? "next" : "this")} generating={generate.isPending}
-          generateLabel={data?.week ? "Plan next week" : "Generate this week"}
+          onGenerate={(target) => generate.mutate(target)} generating={generate.isPending}
+          generateResult={generate.isSuccess ? generate.data : null}
           error={generate.isError ? String(generate.error) : null} />
       )}
     </div>
@@ -176,8 +196,23 @@ const SESSION_SPORTS = ["run", "ride", "swim", "strength", "hyrox", "brick", "mo
 const sessionMeta = (s: TrSession) =>
   [s.planned_km ? `${s.planned_km} km` : null, s.planned_minutes ? `${s.planned_minutes}′` : null].filter(Boolean).join(" · ");
 
-function WeekCard({ weekStart, week, sessions, onOpen, onSync, syncing, syncResult, syncError }: {
-  weekStart: string; week: TrPlanWeek | null; sessions: TrSession[]; onOpen: () => void;
+const weekTag = (weekStart: string, currentWeek: string) => {
+  const diff = Math.round((new Date(weekStart + "T00:00:00Z").getTime() - new Date(currentWeek + "T00:00:00Z").getTime()) / (7 * 86400_000));
+  return diff === 0 ? "this week" : diff === 1 ? "next week" : diff === -1 ? "last week" : diff > 0 ? `in ${diff} weeks` : `${-diff} weeks ago`;
+};
+function WeekNav({ weekStart, currentWeek, onPrev, onNext }: { weekStart: string; currentWeek: string; onPrev: () => void; onNext: () => void }) {
+  return (
+    <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 p-0.5" onClick={(e) => e.stopPropagation()}>
+      <button type="button" onClick={onPrev} title="Previous week" className="rounded-full p-1 text-slate-500 hover:bg-surface hover:text-slate-900"><ChevronLeft className="h-3.5 w-3.5" /></button>
+      <span className="px-1 font-mono text-[11px] text-slate-600">{weekStart} · {weekTag(weekStart, currentWeek)}</span>
+      <button type="button" onClick={onNext} title="Next week" className="rounded-full p-1 text-slate-500 hover:bg-surface hover:text-slate-900"><ChevronRight className="h-3.5 w-3.5" /></button>
+    </span>
+  );
+}
+
+function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOpen, onSync, syncing, syncResult, syncError }: {
+  weekStart: string; currentWeek: string; week: TrPlanWeek | null; sessions: TrSession[];
+  onPrev: () => void; onNext: () => void; onOpen: () => void;
   onSync: () => void; syncing: boolean;
   syncResult: { intervals: number; wellness: number; hevy: number; matched: number; removed: number; errors: string[] } | null;
   syncError: string | null;
@@ -188,11 +223,14 @@ function WeekCard({ weekStart, week, sessions, onOpen, onSync, syncing, syncResu
     <Card className="cursor-pointer transition hover:border-slate-300">
       <div onClick={onOpen}>
         <CardHeader title={`Week of ${weekStart}`}
-          subtitle={week ? `${BLOCK_LABELS[week.block] ?? week.block} · ${week.generated_by}${week.focus ? ` · ${week.focus}` : ""}` : "No plan yet — open to generate the week"}
+          subtitle={week ? `${BLOCK_LABELS[week.block] ?? week.block} · ${week.generated_by}${week.focus ? ` · ${week.focus}` : ""}` : "No plan for this week yet — open to generate it"}
           action={
-            <Button variant="secondary" onClick={(e) => { e.stopPropagation(); onSync(); }} loading={syncing}>
-              <RefreshCw className="h-4 w-4" /> Sync
-            </Button>
+            <div className="flex items-center gap-2">
+              <WeekNav weekStart={weekStart} currentWeek={currentWeek} onPrev={onPrev} onNext={onNext} />
+              <Button variant="secondary" onClick={(e) => { e.stopPropagation(); onSync(); }} loading={syncing}>
+                <RefreshCw className="h-4 w-4" /> Sync
+              </Button>
+            </div>
           } />
         {syncError && <p className="mx-5 mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{syncError}</p>}
         {syncResult && (
@@ -232,10 +270,21 @@ function WeekCard({ weekStart, week, sessions, onOpen, onSync, syncing, syncResu
 
 /* The popup: structure and design this week. Every change is one tr-plan-edit
    action (same write path as the bot → Google Calendar stays in sync). */
-function WeekPlanModal({ weekStart, week, sessions, onClose, onChanged, onSync, syncing, onGenerate, generating, generateLabel, error }: {
-  weekStart: string; week: TrPlanWeek | null; sessions: TrSession[]; onClose: () => void; onChanged: () => void;
-  onSync: () => void; syncing: boolean; onGenerate: () => void; generating: boolean; generateLabel: string; error: string | null;
+function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext, onClose, onChanged, onSync, syncing, onGenerate, generating, generateResult, error }: {
+  weekStart: string; currentWeek: string; week: TrPlanWeek | null; sessions: TrSession[];
+  onPrev: () => void; onNext: () => void; onClose: () => void; onChanged: () => void;
+  onSync: () => void; syncing: boolean; onGenerate: (target: string) => void; generating: boolean;
+  generateResult: { target: string; calendar_pushed: number; generated_by: string; progression?: Record<string, unknown> } | null;
+  error: string | null;
 }) {
+  const isCurrent = weekStart === currentWeek;
+  const nextWeek = addDaysISO(currentWeek, 7);
+  // Generate/regenerate acts on the week being VIEWED. Regenerating replaces
+  // sessions still marked planned (edits are lost) — so it asks first.
+  const generateViewed = () => {
+    if (week && !confirm(`Regenerate the week of ${weekStart}? Sessions still marked planned are replaced (done/skipped stay).`)) return;
+    onGenerate(weekStart);
+  };
   const [editing, setEditing] = useState<string | null>(null); // session id being edited, "new:<date>" for a draft
   const edit = useMutation({ mutationFn: planEdit, onSuccess: () => { onChanged(); setEditing(null); } });
   // Week-level calendar controls: push = create missing + UPDATE existing events
@@ -249,7 +298,10 @@ function WeekPlanModal({ weekStart, week, sessions, onClose, onChanged, onSync, 
     <Modal open onClose={onClose} title={`Week of ${weekStart}${week ? ` · ${BLOCK_LABELS[week.block] ?? week.block}` : ""}`} wide>
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <p className="text-xs text-slate-500">{week?.focus ?? "No plan generated for this week yet."}</p>
+          <WeekNav weekStart={weekStart} currentWeek={currentWeek} onPrev={onPrev} onNext={onNext} />
+          <p className="min-w-0 flex-1 text-xs text-slate-500">{week?.focus ?? "No plan generated for this week yet."}</p>
+        </div>
+        <div className="flex flex-wrap items-center justify-end gap-3">
           <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={onSync} loading={syncing}><RefreshCw className="h-4 w-4" /> Sync</Button>
             <Button variant="secondary" title="Create missing calendar events and update existing ones — never duplicates"
@@ -263,11 +315,26 @@ function WeekPlanModal({ weekStart, week, sessions, onClose, onChanged, onSync, 
                 <CalendarX className="h-4 w-4" /> Clear
               </Button>
             )}
-            <Button onClick={onGenerate} loading={generating}><Sparkles className="h-4 w-4" /> {generateLabel}</Button>
+            {isCurrent && (
+              <Button onClick={() => onGenerate(nextWeek)} loading={generating} title={`Generate the week of ${nextWeek} from this week's actuals and show it`}>
+                <Sparkles className="h-4 w-4" /> Plan next week
+              </Button>
+            )}
+            <Button variant={isCurrent ? "secondary" : "primary"} onClick={generateViewed} loading={generating}>
+              <Sparkles className="h-4 w-4" /> {week ? "Regenerate this week" : "Generate this week"}
+            </Button>
           </div>
         </div>
+        {generateResult && (
+          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
+            Generated week of {generateResult.target} ({generateResult.generated_by}) · {generateResult.calendar_pushed} calendar events
+            {generateResult.progression && "lifts" in generateResult.progression ? ` · lifts progressed from your last sessions` : ""}
+            {generateResult.progression && "long_run" in generateResult.progression ? ` · long run progressed` : ""}
+            {generateResult.target !== weekStart ? ` — use ▶ to view it` : ""}
+          </p>
+        )}
         <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
-          <b className="text-slate-700">Progression guide</b> (applied by {generateLabel.toLowerCase()}, then edit freely):
+          <b className="text-slate-700">Progression guide</b> (applied when a week is generated, then edit freely):
           lifts repeat last week's weight on a rep ladder 8 → 10 → 12, then +5% weight back to 8, every set must hit the rung ·
           easy long run +12 min per week, every 4th week shorter to absorb · tempo and intervals are a preliminary suggestion — design them here.
           Edits, done/skip and delete update Google Calendar; "Push to Calendar" creates what's missing and updates the rest.
