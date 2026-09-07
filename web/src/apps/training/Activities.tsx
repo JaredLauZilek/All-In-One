@@ -254,9 +254,10 @@ function AbsDelta({ cur, prev, unit, decimals = 0 }: { cur: number; prev: number
   );
 }
 
-/* One sport row: "🏃 Run   3h59m · 29.0 km" then, under it, the time change in %
-   and the distance / tonnage change as an absolute number (Jared: "+20.3 km", not
-   "+45% km"). */
+/* One sport row: "🏃 Run   3h59m · 29.0 km" then, under it, the change in the
+   headline quantity — distance for cardio, tonnage for gym — as a % AND an absolute
+   number: "▲ 45% +9.0 km". Both refer to the same thing (Jared: a "▼ 3% time /
+   +368 kg" pair read as a contradiction). Time isn't compared. */
 function SportRow({ emoji, label, min, amount, unit, decimals, prev }: {
   emoji: string; label: string; min: number; amount: number; unit: string; decimals: number;
   prev: { min: number; amount: number } | null;
@@ -270,9 +271,9 @@ function SportRow({ emoji, label, min, amount, unit, decimals, prev }: {
           {amount > 0 && ` · ${amount.toLocaleString(undefined, { minimumFractionDigits: decimals, maximumFractionDigits: decimals })} ${unit}`}
         </span>
       </div>
-      {prev && (min > 0 || prev.min > 0) && (
+      {prev && (amount > 0 || prev.amount > 0) && (
         <div className="mt-0.5 flex items-baseline justify-end gap-2">
-          <Delta cur={min} prev={prev.min} />
+          <Delta cur={amount} prev={prev.amount} />
           <AbsDelta cur={amount} prev={prev.amount} unit={unit} decimals={decimals} />
         </div>
       )}

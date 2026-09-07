@@ -34,8 +34,10 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   activity: scalars + arrays ≤12 long, nulls dropped); lift cards list each
   exercise as "×N name" (working sets, warm-ups excluded) with tonnage Σ weight×reps
   over every set (= Hevy's volume figure); per week: Run / Swim / Cycle / Gym rows
-  (Swim + Cycle appear once they have data) with time Δ% vs the previous week AND
-  the absolute change in km / kg (Jared: "+20.3 km", not "+45% km"). Gym bucket =
+  (Swim + Cycle appear once they have data); under each, the change vs the previous
+  week in the row's headline quantity — km for cardio, kg lifted for gym — as BOTH a
+  % and an absolute number ("▲ 45% +9.0 km"). Time is not compared (a "▼ 3% time /
+  +368 kg" pair read as a contradiction). Gym bucket =
   strength + 'other' (Garmin
   logs Jared's gym sessions as generic "Workout"). Since Hevy is the lift source
   (2026-09-07) a Garmin gym-bucket entry whose recording window overlaps a Hevy
