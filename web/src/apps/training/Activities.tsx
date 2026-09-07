@@ -11,8 +11,9 @@ import { type TrWorkout, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES,
 
 const WEEKS_SHOWN = 6;
 
-/* Buckets for the weekly split. Garmin logs Jared's gym sessions as generic
-   "Workout" (→ sport 'other'), so 'other' counts as gym alongside Hevy lifts. */
+/* Buckets for the weekly split. Lifts come from Hevy ('strength'). Garmin also logs
+   gym sessions as a generic "Workout" (→ 'other'); those are deduped against Hevy per
+   day (dedupeGymShadows) so 'other' only counts as gym when there's no Hevy lift. */
 const CARDIO = ["run", "ride", "swim", "brick", "hyrox"];
 const GYM = ["strength", "other"];
 
@@ -62,6 +63,17 @@ const stepsOf = (w: TrWorkout) => {
   return w.sport === "run" && cad && w.duration_min ? Math.round(cad * 2 * Number(w.duration_min)) : null;
 };
 
+/* Hevy (Pro) is the source of truth for lifts. Jared still wears his Garmin in
+   the gym, so the SAME session also arrives from intervals.icu as a generic
+   "Workout" (sport 'other'). Left alone, the gym bucket counts it twice — the
+   exact duplicates he was deleting by hand. Drop the Garmin shadow on any MYT day
+   that has a Hevy lift; a day with no Hevy lift keeps its 'other' entry, so a
+   forgotten Hevy log still counts as gym. DB rows are untouched (Garmin's HR data). */
+function dedupeGymShadows(list: TrWorkout[]): TrWorkout[] {
+  const hevyDays = new Set(list.filter((w) => w.source === "hevy").map(workoutDay));
+  return list.filter((w) => !(w.source === "intervals" && w.sport === "other" && hevyDays.has(workoutDay(w))));
+}
+
 export default function Activities() {
   // With custom zone versions configured, cards NEVER fall back to
   // intervals.icu's model (mixing zone models across cards misleads).
@@ -74,7 +86,7 @@ export default function Activities() {
       const { data, error } = await supabase.from("tr_workouts").select("*")
         .gte("started_at", oldest + "T00:00:00+08:00").order("started_at");
       if (error) throw error;
-      return data as TrWorkout[];
+      return dedupeGymShadows(data as TrWorkout[]);
     },
   });
 
