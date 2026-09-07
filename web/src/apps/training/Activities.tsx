@@ -328,6 +328,9 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
 
   return (
     <div className="rounded-xl bg-slate-50 p-2 text-[11px] leading-tight dark:bg-slate-100">
+      <p className="mb-1 truncate font-sans text-[11px] font-semibold text-slate-900" title={w.name ?? ""}>
+        {w.name ?? w.sport}
+      </p>
       <p className="font-mono font-semibold text-slate-900">
         {SPORT_EMOJI[w.sport] ?? "•"} {w.duration_min ? fmtDur(Number(w.duration_min)) : "—"}
         {w.distance_km ? ` · ${Number(w.distance_km).toFixed(1)} km` : ""}
@@ -358,9 +361,6 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
           ))}
         </div>
       )}
-      <p className="mt-1.5 truncate font-sans text-[11px] font-medium text-slate-600" title={w.name ?? ""}>
-        {w.name ?? w.sport}
-      </p>
     </div>
   );
 }
