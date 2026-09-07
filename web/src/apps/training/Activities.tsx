@@ -461,14 +461,17 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
   const pace = w.sport === "run" && w.distance_km && w.duration_min
     ? Number(w.duration_min) / Number(w.distance_km) : null;
 
-  return (
+  return (<>
+    {/* Rendered OUTSIDE the card element: React click events bubble up the
+        component tree, so a close click inside the popup would otherwise reach
+        the card's onClick and reopen it. */}
+    {detail && <LiftDetail w={w} onClose={() => setDetail(false)} />}
     <div
       className={cn("group relative rounded-xl bg-slate-50 p-2 text-[11px] leading-tight dark:bg-slate-100",
         hasLiftDetail && "cursor-pointer transition hover:bg-slate-100 dark:hover:bg-slate-200")}
       onClick={hasLiftDetail && !editing ? () => setDetail(true) : undefined}
       title={hasLiftDetail ? "Click for set-by-set detail" : undefined}
     >
-      {detail && <LiftDetail w={w} onClose={() => setDetail(false)} />}
       {!editing && (
         <button
           type="button"
@@ -533,5 +536,5 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
         </div>
       )}
     </div>
-  );
+  </>);
 }
