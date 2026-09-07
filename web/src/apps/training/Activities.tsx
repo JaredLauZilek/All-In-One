@@ -388,12 +388,27 @@ const fmtClock = (s: number) => {
    tr-activity floors pace at 20:00/km so walking/standing shows as a dip to the
    floor, not a hole. The top of the pace axis is the 1st-percentile pace so a
    single GPS spike can't stretch the scale. */
-function StreamChart({ points, field, invert, lineClass, areaClass, dotClass, fmt, unit, title }: {
-  points: RunPoint[]; field: "hr" | "pace"; invert?: boolean; lineClass: string; areaClass: string; dotClass: string;
+/* Centered median filter: kills one-sample GPS spikes but keeps the vertical
+   edges of an interval block (a moving average would round them off). */
+const medianSmooth = (vals: (number | null)[], win: number) => {
+  const h = Math.floor(win / 2);
+  return vals.map((v, i) => {
+    if (v == null) return null;
+    const w: number[] = [];
+    for (let j = i - h; j <= i + h; j++) { const u = vals[j]; if (u != null) w.push(u); }
+    w.sort((a, b) => a - b);
+    return w[Math.floor(w.length / 2)];
+  });
+};
+
+function StreamChart({ points, field, invert, smooth, lineClass, areaClass, dotClass, fmt, unit, title }: {
+  points: RunPoint[]; field: "hr" | "pace"; invert?: boolean; smooth?: number; lineClass: string; areaClass: string; dotClass: string;
   fmt: (v: number) => string; unit: string; title: string;
 }) {
   const [hover, setHover] = useState<number | null>(null);
-  const defined = points.map((p) => p[field]).filter((v): v is number => v != null);
+  const raw = points.map((p) => p[field]);
+  const vals = smooth && smooth > 1 ? medianSmooth(raw, smooth) : raw;
+  const defined = vals.filter((v): v is number => v != null);
   if (defined.length < 2) return <p className="text-xs text-slate-400">{title}: no data in this recording.</p>;
   const sorted = [...defined].sort((a, b) => a - b);
   const q = (f: number) => sorted[Math.floor((sorted.length - 1) * f)];
@@ -409,15 +424,15 @@ function StreamChart({ points, field, invert, lineClass, areaClass, dotClass, fm
   // Segments of consecutive defined points → one line path + one area path each.
   const base = invert ? H - B : H - B; // area always drops to the bottom axis
   let d = "", area = "";
-  let seg: RunPoint[] = [];
+  let seg: { t: number; v: number }[] = [];
   const flush = () => {
     if (seg.length < 2) { seg = []; return; }
-    const pts = seg.map((p) => `${x(p.t).toFixed(1)},${y(p[field] as number).toFixed(1)}`);
+    const pts = seg.map((p) => `${x(p.t).toFixed(1)},${y(p.v).toFixed(1)}`);
     d += `M${pts.join("L")}`;
     area += `M${x(seg[0].t).toFixed(1)},${base}L${pts.join("L")}L${x(seg[seg.length - 1].t).toFixed(1)},${base}Z`;
     seg = [];
   };
-  for (const p of points) { if (p[field] == null) flush(); else seg.push(p); }
+  points.forEach((p, i) => { const v = vals[i]; if (v == null) flush(); else seg.push({ t: p.t, v }); });
   flush();
   const yTicks = [lo + pad, (lo + hi) / 2, hi - pad];
   const stepMin = tMax > 5400 ? 15 : tMax > 2400 ? 10 : 5;
@@ -430,7 +445,7 @@ function StreamChart({ points, field, invert, lineClass, areaClass, dotClass, fm
     setHover(best);
   };
   const hp = hover != null ? points[hover] : null;
-  const hv = hp ? hp[field] : null;
+  const hv = hover != null ? vals[hover] : null;
   return (
     <div>
       <p className="mb-1 text-xs font-semibold text-slate-700">{title}</p>
@@ -533,7 +548,7 @@ function RunDetail({ w, onClose }: { w: TrWorkout; onClose: () => void }) {
           <>
             <StreamChart points={detail.data.points} field="hr" title="Heart rate" unit="bpm"
               lineClass="stroke-red-500" areaClass="fill-red-500/10" dotClass="fill-red-500" fmt={(v) => String(Math.round(v))} />
-            <StreamChart points={detail.data.points} field="pace" invert title="Pace" unit="/km"
+            <StreamChart points={detail.data.points} field="pace" invert smooth={5} title="Pace" unit="/km"
               lineClass="stroke-sky-500" areaClass="fill-sky-500/15" dotClass="fill-sky-500" fmt={fmtSecPace} />
           </>
         )}

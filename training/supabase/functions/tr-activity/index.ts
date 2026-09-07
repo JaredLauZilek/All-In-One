@@ -29,7 +29,7 @@ const MIN_MOVING_MPS = 0.5; // (laps) below this = standing still; pace would ex
 // floor (20:00/km) instead of becoming gaps, so rest intervals read as dips.
 const PACE_FLOOR = 1200;
 // Bump when the cached shape/semantics change — stale caches refetch themselves.
-const DETAIL_VERSION = 2;
+const DETAIL_VERSION = 3;
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
@@ -76,8 +76,10 @@ Deno.serve(async (req) => {
       let hs = 0, hc = 0, ps = 0, pc = 0;
       for (let j = i; j < Math.min(n, i + k); j++) {
         const h = hr?.[j]; if (h != null && h > 0) { hs += h; hc++; }
-        const v = vel?.[j];
-        if (v != null) { ps += Math.min(PACE_FLOOR, v > 0 ? 1000 / v : PACE_FLOOR); pc++; }
+        // Standing still arrives as v = 0 OR as a null sample (Garmin auto-pause
+        // gaps) — both are "at the floor", never a hole. Only a missing velocity
+        // stream altogether (treadmill without a footpod) yields no pace.
+        if (vel) { const v = vel[j]; ps += v != null && v > 0 ? Math.min(PACE_FLOOR, 1000 / v) : PACE_FLOOR; pc++; }
       }
       points.push({
         t: Number(time[i]),
