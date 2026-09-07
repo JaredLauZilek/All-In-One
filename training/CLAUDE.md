@@ -88,8 +88,17 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   tab shows a dashed **wellness strip at the top of every day cell** (Sleep
   score · time, RHR, HRV, Steps) — recovery reads before load.
 - **A Telegram bot** is the mid-week interface: /today /week /sync commands plus
-  Claude-powered chat that can skip/move/update/add sessions (and mirrors those
-  changes into Google Calendar). The dashboard is the once-a-week review tool.
+  Claude-powered chat. **Write policy (Jared, 2026-09-07): the bot and Claude are
+  READ-ONLY on activities, races, wellness and settings.** The only thing they can
+  change is the planned week — and only as a **proposal**: Claude's actions
+  (skip/move/update/add sessions) are validated against the DB (hallucinated ids /
+  bad dates / unknown sports dropped), stored in `tr_bot_proposals` (0010), shown in
+  Telegram as a bullet list with ✅ Apply / ✗ Discard inline buttons (or reply
+  yes/no), and applied to `tr_planned_sessions` + Google Calendar ONLY on Apply.
+  A newer proposal expires older pending ones; a resolved button edits the message
+  so it can't be re-applied. Not "edits": /link stores the chat id (pairing),
+  /sync runs tr-sync (same as the app's Sync button), chat log for context.
+  The dashboard is the once-a-week review tool.
 
 Deliberate scope cut (Jared's choice 2026-09-05): **no Apple Health / sleep / HRV
 source** — Strava + Hevy APIs only. Recovery-aware recommendations key off completed
@@ -188,8 +197,8 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
   tr-plan-week / tr-activity `verify_jwt: true`; **tr-telegram-webhook `verify_jwt: false`**);
   `supabase/functions/` here is the source mirror.
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
-  2026-09-05; 0007 `custom_name`, 0008 `tr_wellness.steps`, 0009 `tr_workouts.detail`
-  applied 2026-09-07). Next migration: `0010_`.
+  2026-09-05; 0007 `custom_name`, 0008 `tr_wellness.steps`, 0009 `tr_workouts.detail`,
+  0010 `tr_bot_proposals` applied 2026-09-07). Next migration: `0011_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).
 
 ## Gotchas
@@ -200,6 +209,7 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
   and you get duplicate message processing.
 - tr-sync matching is same-MYT-day + compatible sport (a run can tick a `hyrox`
   session, a Hevy lift ticks `strength`/`hyrox`); first match wins.
-- Claude action `id`s come from the context we send; the webhook only applies actions
-  whose row actually belongs to the user (`eq user_id`), so a hallucinated id no-ops.
+- Claude action `id`s come from the context we send; `describeActions` drops any id
+  that isn't the user's before the proposal is even shown, and `applyActions` still
+  scopes every write `eq user_id`. Actions can only ever touch tr_planned_sessions.
 - Strava tokens rotate on every refresh — always persist the returned refresh_token.
