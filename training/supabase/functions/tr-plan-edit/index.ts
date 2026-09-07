@@ -12,6 +12,8 @@
 //   { op:"update",     id, title?, detail?, planned_minutes?, planned_km?, sport? }
 //   { op:"add_session", session_date, sport, title, detail?, planned_minutes?, planned_km? }
 //   { op:"delete",     id }
+//   { op:"push_week",  week_start }   → calendar: create missing events, UPDATE existing (never duplicates)
+//   { op:"clear_week", week_start }   → calendar: delete the week's events (sessions stay)
 // Returns { applied: string[] }.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
@@ -28,7 +30,7 @@ const SPORTS = new Set(["run", "ride", "swim", "strength", "hyrox", "brick", "mo
 const STATUSES = new Set(["planned", "done", "skipped"]);
 
 interface Action { op: string; id?: string; status?: string; date?: string; title?: string; detail?: string | null;
-  planned_minutes?: number | null; planned_km?: number | null; session_date?: string; sport?: string; }
+  planned_minutes?: number | null; planned_km?: number | null; session_date?: string; sport?: string; week_start?: string; }
 
 /* ---------- Google Calendar mirror ---------- */
 async function gcalToken(): Promise<string | null> {
@@ -139,6 +141,27 @@ Deno.serve(async (req) => {
             if (ev) await svc.from("tr_planned_sessions").update({ gcal_event_id: ev }).eq("id", ins.id);
           }
           applied.push(`added ${a.session_date}: ${row.title}`);
+        } else if ((a.op === "push_week" || a.op === "clear_week") && a.week_start && ISO_DAY.test(a.week_start)) {
+          if (!access) { applied.push("⚠ Google Calendar isn't configured (GOOGLE_* secrets)"); continue; }
+          const end = new Date(new Date(a.week_start + "T00:00:00Z").getTime() + 6 * 86400_000).toISOString().slice(0, 10);
+          const { data: list } = await svc.from("tr_planned_sessions").select("*").eq("user_id", userId)
+            .gte("session_date", a.week_start).lte("session_date", end);
+          let created = 0, updated = 0, removed = 0;
+          for (const s of list ?? []) {
+            if (a.op === "clear_week") {
+              if (s.gcal_event_id) { await gcalDelete(access, s.gcal_event_id); await svc.from("tr_planned_sessions").update({ gcal_event_id: null }).eq("id", s.id); removed++; }
+              continue;
+            }
+            if (s.sport === "rest" || s.status === "skipped") continue;
+            if (s.gcal_event_id) {
+              await gcalPatch(access, s.gcal_event_id, { summary: `🏋️ ${s.title}`, description: `${s.detail ?? ""}\n\n— All-In-One Training`, ...span(s.session_date, time, s.planned_minutes) });
+              updated++;
+            } else {
+              const ev = await gcalInsert(access, s, time);
+              if (ev) { await svc.from("tr_planned_sessions").update({ gcal_event_id: ev }).eq("id", s.id); created++; }
+            }
+          }
+          applied.push(a.op === "clear_week" ? `calendar cleared: ${removed} events removed` : `calendar: ${created} created · ${updated} updated`);
         } else if (a.op === "delete" && a.id) {
           const { data: s } = await own(a.id);
           if (!s) continue;

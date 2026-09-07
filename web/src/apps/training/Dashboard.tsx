@@ -8,7 +8,7 @@
 // Calendar when configured). Mid-week changes happen through the Telegram bot.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Sparkles, Check, X, CalendarDays, Plus, Trash2, RotateCcw } from "lucide-react";
+import { RefreshCw, Sparkles, Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, StatusBadge, Modal, Input, Select, Textarea, cn } from "../../components/ui";
 import {
@@ -52,9 +52,9 @@ function useWeekData(weekStart: string) {
 /* Every plan edit — from the week popup — goes through tr-plan-edit, the single
    write path shared with the Telegram bot (mirrors Google Calendar). */
 export interface PlanAction {
-  op: "set_status" | "move" | "update" | "add_session" | "delete";
+  op: "set_status" | "move" | "update" | "add_session" | "delete" | "push_week" | "clear_week";
   id?: string; status?: string; date?: string; title?: string; detail?: string | null;
-  planned_minutes?: number | null; planned_km?: number | null; session_date?: string; sport?: string;
+  planned_minutes?: number | null; planned_km?: number | null; session_date?: string; sport?: string; week_start?: string;
 }
 async function planEdit(actions: PlanAction[]) {
   const { data, error } = await supabase.functions.invoke("tr-plan-edit", { body: { actions } });
@@ -236,8 +236,12 @@ function WeekPlanModal({ weekStart, week, sessions, onClose, onChanged, onSync, 
   weekStart: string; week: TrPlanWeek | null; sessions: TrSession[]; onClose: () => void; onChanged: () => void;
   onSync: () => void; syncing: boolean; onGenerate: () => void; generating: boolean; generateLabel: string; error: string | null;
 }) {
-  const [editing, setEditing] = useState<string | null>(null); // session id being edited, "new" for a draft
+  const [editing, setEditing] = useState<string | null>(null); // session id being edited, "new:<date>" for a draft
   const edit = useMutation({ mutationFn: planEdit, onSuccess: () => { onChanged(); setEditing(null); } });
+  // Week-level calendar controls: push = create missing + UPDATE existing events
+  // (never a duplicate); clear = remove the week's events, keep the sessions.
+  const calendar = useMutation({ mutationFn: planEdit, onSuccess: onChanged });
+  const withEvents = sessions.filter((s) => s.gcal_event_id).length;
   const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
   const byDay = (d: string) => sessions.filter((s) => s.session_date === d);
 
@@ -246,12 +250,30 @@ function WeekPlanModal({ weekStart, week, sessions, onClose, onChanged, onSync, 
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <p className="text-xs text-slate-500">{week?.focus ?? "No plan generated for this week yet."}</p>
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <Button variant="secondary" onClick={onSync} loading={syncing}><RefreshCw className="h-4 w-4" /> Sync</Button>
+            <Button variant="secondary" title="Create missing calendar events and update existing ones — never duplicates"
+              onClick={() => calendar.mutate([{ op: "push_week", week_start: weekStart }])} loading={calendar.isPending}>
+              <CalendarPlus className="h-4 w-4" /> Push to Calendar
+            </Button>
+            {withEvents > 0 && (
+              <Button variant="ghost" title="Remove this week's events from Google Calendar (sessions stay here)"
+                onClick={() => { if (confirm(`Remove ${withEvents} event(s) from Google Calendar? The sessions stay in the app.`)) calendar.mutate([{ op: "clear_week", week_start: weekStart }]); }}
+                loading={calendar.isPending}>
+                <CalendarX className="h-4 w-4" /> Clear
+              </Button>
+            )}
             <Button onClick={onGenerate} loading={generating}><Sparkles className="h-4 w-4" /> {generateLabel}</Button>
           </div>
         </div>
-        {(error || edit.isError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error ?? String(edit.error)}</p>}
+        <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
+          <b className="text-slate-700">Progression guide</b> (applied by {generateLabel.toLowerCase()}, then edit freely):
+          lifts repeat last week's weight on a rep ladder 8 → 10 → 12, then +5% weight back to 8, every set must hit the rung ·
+          easy long run +12 min per week, every 4th week shorter to absorb · tempo and intervals are a preliminary suggestion — design them here.
+          Edits, done/skip and delete update Google Calendar; "Push to Calendar" creates what's missing and updates the rest.
+        </p>
+        {calendar.isSuccess && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{calendar.data.applied.join(" · ")}</p>}
+        {(error || edit.isError || calendar.isError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error ?? String(edit.error ?? calendar.error)}</p>}
 
         <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200/60">
           {days.map((d) => {
@@ -291,7 +313,7 @@ function WeekPlanModal({ weekStart, week, sessions, onClose, onChanged, onSync, 
             );
           })}
         </div>
-        <p className="text-[10px] text-slate-400">Edits update the plan and your Google Calendar. The Telegram bot proposes changes to this same plan.</p>
+        <p className="text-[10px] text-slate-400">📅 = on Google Calendar. The Telegram bot proposes changes to this same plan; nothing applies without your OK.</p>
       </div>
     </Modal>
   );
@@ -307,8 +329,9 @@ function SessionLine({ s, busy, onEdit, onStatus, onDelete }: {
         <p className={cn("text-sm font-semibold", s.status === "skipped" ? "text-slate-400 line-through" : "text-slate-900")}>
           {s.title}
           {sessionMeta(s) && <span className="ml-2 font-mono text-[11px] font-normal text-slate-400">{sessionMeta(s)}</span>}
+          {s.gcal_event_id && <span className="ml-2 text-[10px] font-normal text-slate-400" title="On Google Calendar">📅</span>}
         </p>
-        {s.detail && <p className="mt-0.5 text-xs leading-relaxed text-slate-500">{s.detail}</p>}
+        {s.detail && <p className="mt-0.5 whitespace-pre-line text-xs leading-relaxed text-slate-500">{s.detail}</p>}
       </div>
       <div className="flex shrink-0 items-center gap-0.5 pt-0.5">
         {s.sport !== "rest" && (s.status === "planned" ? (

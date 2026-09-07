@@ -8,8 +8,20 @@
 // Calendar when the google secrets are configured.
 //
 // POST {week_start?: "YYYY-MM-DD" (Monday; default = next Monday MYT),
-//       use_claude?: boolean (default true)}
+//       use_claude?: boolean (default true), dry_run?: boolean (compute only)}
 // Deployed verify_jwt: true — browser session only.
+//
+// ── Jared's progression rules (2026-09-07) — applied by the rule engine, kept
+//    verbatim by the Claude pass; Jared then edits the week by hand in the app:
+//  LIFTS  Each exercise done last week (Hevy) progresses on a rep ladder at the
+//         SAME weight: 8 → 10 → 12 reps; once 12 is hit on every working set,
+//         weight +5% (rounded to the plate step) and back to 8. "Achieved" = the
+//         LOWEST reps across working sets (every set must hit the rung); a
+//         missed rung repeats, so stagnation is handled naturally.
+//  LONG RUN  Easy long run +12 min/week (rounded to 5); every 4th loading week is
+//         the existing deload → ~70% of last week's long run (absorb week).
+//  TEMPO / INTERVALS  No fixed method — Jared designs these weekly; the engine +
+//         Claude only give a preliminary suggestion from last week's actuals.
 import { createClient } from "jsr:@supabase/supabase-js@2";
 
 const CORS = {
@@ -32,6 +44,54 @@ function nextMonday(): Date {
 }
 
 type Sport = "run" | "ride" | "swim" | "strength" | "hyrox" | "brick" | "mobility" | "rest" | "other";
+const mytDay = (isoTs: string) => new Date(new Date(isoTs).getTime() + 8 * 3600_000).toISOString().slice(0, 10);
+const round5 = (n: number) => Math.round(n / 5) * 5;
+
+/* ---------------- progression: lifts (Hevy) ---------------- */
+interface HevySet { weight_kg?: number | null; reps?: number | null; type?: string | null }
+interface HevyEx { name: string; template_id?: string | null; sets: HevySet[] }
+interface LiftRx { name: string; sets: number; reps: number; weight_kg: number | null; last: string }
+
+function progressLift(ex: HevyEx): LiftRx | null {
+  const work = ex.sets.filter((s) => s.type !== "warmup" && (s.reps ?? 0) > 0);
+  if (!work.length) return null;
+  // the weight he actually worked at = the most common working weight
+  const freq = new Map<number, number>();
+  for (const s of work) freq.set(s.weight_kg ?? 0, (freq.get(s.weight_kg ?? 0) ?? 0) + 1);
+  const W = [...freq.entries()].sort((a, b) => b[1] - a[1] || b[0] - a[0])[0][0];
+  const achieved = Math.min(...work.map((s) => s.reps ?? 0)); // every set must hit the rung
+  const repsDone = work.map((s) => s.reps ?? 0).join("/");
+  let reps: number, weight: number | null;
+  if (W <= 0) { // bodyweight: reps ladder only, caps at 12 (add load by hand)
+    weight = null; reps = achieved >= 10 ? 12 : achieved >= 8 ? 10 : 8;
+  } else if (achieved >= 12) {
+    const step = W >= 30 ? 2.5 : 1;
+    weight = Math.round((W * 1.05) / step) * step; if (weight <= W) weight = W + step;
+    reps = 8;
+  } else if (achieved >= 10) { weight = W; reps = 12; }
+  else if (achieved >= 8) { weight = W; reps = 10; }
+  else { weight = W; reps = 8; }
+  return { name: ex.name, sets: work.length, reps, weight_kg: weight, last: `${W > 0 ? `${W} kg × ` : ""}${repsDone}` };
+}
+const rxLine = (r: LiftRx) => `${r.name}: ${r.sets} × ${r.reps}${r.weight_kg != null ? ` @ ${r.weight_kg} kg` : " (bodyweight)"}  (last week ${r.last})`;
+
+/* Last week's Hevy sessions → next week's strength sessions on the same weekdays,
+   each exercise progressed. Replaces the template's generic strength days. */
+function strengthFromHevy(lifts: { name: string | null; started_at: string; duration_min: number | null; data: unknown }[], weekStart: Date): Sess[] {
+  const out: Sess[] = [];
+  for (const w of lifts) {
+    const exs = ((w.data as { exercises?: HevyEx[] })?.exercises ?? []).map(progressLift).filter((x): x is LiftRx => !!x);
+    if (!exs.length) continue;
+    const dow = (new Date(mytDay(w.started_at) + "T00:00:00Z").getUTCDay() + 6) % 7;
+    out.push({
+      session_date: iso(addDays(weekStart, dow)), sport: "strength",
+      title: `${w.name ?? "Lift"} (Hevy)`,
+      detail: `Progression from last week — same weight, next rung (8 → 10 → 12, then +5%):\n${exs.map(rxLine).join("\n")}`,
+      planned_minutes: w.duration_min ? round5(Number(w.duration_min)) : 60, planned_km: null, intensity: "steady",
+    });
+  }
+  return out;
+}
 interface Sess { session_date: string; sport: Sport; title: string; detail: string;
   planned_minutes: number | null; planned_km: number | null; intensity: string | null; }
 
@@ -164,7 +224,7 @@ async function claudeAdjust(ctx: Record<string, unknown>, sessions: Sess[]): Pro
     body: JSON.stringify({
       model, max_tokens: 8000,
       system:
-        "You are the training-plan adjuster inside a personal training app. You receive a rule-generated week skeleton plus what actually happened recently. Adjust the skeleton ONLY where the data justifies it (missed key sessions → don't stack fatigue; strong compliance → keep the plan; a hard race soon → protect the taper). Keep every session_date within the same week, keep 3–9 sessions, keep total minutes within ±20% of the skeleton, and keep sports within: run, ride, swim, strength, hyrox, brick, mobility, rest, other. Sharpen 'detail' into concrete, personal prescriptions. Respond with ONLY a JSON object: {\"focus\": string, \"sessions\": [{\"session_date\",\"sport\",\"title\",\"detail\",\"planned_minutes\",\"planned_km\",\"intensity\"}]} — no markdown fences, no commentary.",
+        "You are the training-plan adjuster inside a personal training app. You receive a rule-generated week skeleton plus what actually happened recently. Adjust the skeleton ONLY where the data justifies it (missed key sessions → don't stack fatigue; strong compliance → keep the plan; a hard race soon → protect the taper). Keep every session_date within the same week, keep 3–9 sessions, keep total minutes within ±20% of the skeleton, and keep sports within: run, ride, swim, strength, hyrox, brick, mobility, rest, other. HARD RULES: any 'strength' session whose title ends in '(Hevy)' and any long-run session carry Jared's own progression rules (see context.progression_rules) — return them UNCHANGED (same date, title, detail, minutes, km). For tempo/interval runs give a concrete preliminary suggestion built from context.last_week_runs; Jared will redesign those by hand. Sharpen other 'detail' text into concrete, personal prescriptions. Respond with ONLY a JSON object: {\"focus\": string, \"sessions\": [{\"session_date\",\"sport\",\"title\",\"detail\",\"planned_minutes\",\"planned_km\",\"intensity\"}]} — no markdown fences, no commentary.",
       messages: [{ role: "user", content: JSON.stringify({ context: ctx, skeleton: sessions }) }],
     }),
   });
@@ -237,6 +297,41 @@ Deno.serve(async (req) => {
     const longDay = DOW[(settings?.long_run_day ?? "saturday").toLowerCase()] ?? 5;
     const daysPerWeek = settings?.days_per_week ?? 6;
     let sessions = skeleton(race?.race_type ?? "other", block, weekStart, runKm, longDay, daysPerWeek);
+
+    /* ---------- Jared's progression rules, from LAST WEEK's actuals ---------- */
+    const prevStart = addDays(weekStart, -7);
+    const { data: lastWeekWorkouts } = await svc.from("tr_workouts")
+      .select("source, sport, name, custom_name, started_at, duration_min, distance_km, avg_hr, data")
+      .eq("user_id", userId)
+      .gte("started_at", prevStart.toISOString()).lt("started_at", new Date(weekStart.getTime() - 8 * 3600_000).toISOString())
+      .order("started_at");
+    const lastLifts = (lastWeekWorkouts ?? []).filter((w) => w.source === "hevy");
+    const lastRuns = (lastWeekWorkouts ?? []).filter((w) => w.sport === "run");
+    const progression: Record<string, unknown> = {};
+    // lifts: replace the template's generic strength days with Hevy-derived, progressed ones
+    const liftSessions = strengthFromHevy(lastLifts, weekStart);
+    if (liftSessions.length && block !== "race") {
+      sessions = sessions.filter((s) => s.sport !== "strength").concat(liftSessions);
+      progression.lifts = liftSessions.map((s) => ({ day: s.session_date, title: s.title, exercises: s.detail.split("\n").length - 1 }));
+    }
+    // long run: +12 min on last week's longest run; deload week = ~70% (absorb)
+    const lastLong = lastRuns.filter((w) => w.duration_min).sort((a, b) => Number(b.duration_min) - Number(a.duration_min))[0];
+    const longIdx = sessions.findIndex((s) => s.sport === "run" && /long/i.test(s.title));
+    if (lastLong && longIdx !== -1 && block !== "race" && block !== "taper") {
+      const D = Number(lastLong.duration_min), K = Number(lastLong.distance_km) || 0;
+      const target = block === "deload" ? round5(D * 0.7) : round5(D + 12);
+      const km = K > 0 ? Math.round((target * (K / D)) * 10) / 10 : null;
+      const easyPace = "conversational pace, nose-breathing easy";
+      sessions[longIdx] = {
+        ...sessions[longIdx], planned_minutes: target, planned_km: km,
+        title: block === "deload" ? "Long run (absorb week)" : "Easy long run",
+        detail: block === "deload"
+          ? `${target} min${km ? ` (~${km} km)` : ""} ${easyPace}. Absorb week: shorter than last week's ${Math.round(D)} min — let the last 3 weeks land.`
+          : `${target} min${km ? ` (~${km} km)` : ""} ${easyPace}. +${target - Math.round(D)} min on last week's ${Math.round(D)} min${K ? ` / ${K} km` : ""}.`,
+      };
+      progression.long_run = { last_min: Math.round(D), next_min: target, deload: block === "deload" };
+    }
+    sessions.sort((a, b) => a.session_date.localeCompare(b.session_date));
     let focus = BLOCK_FOCUS[block];
     let generatedBy = "rules";
     let claudeError: string | null = null;
@@ -255,6 +350,17 @@ Deno.serve(async (req) => {
         race: race ? { name: race.name, type: race.race_type, date: race.race_date } : null,
         run_km_target: runKm, weekly_hours: settings?.weekly_hours ?? 8,
         last_week: lastWeekSessions ?? [],
+        // Jared's rules (see header). Strength + long-run sessions in the skeleton
+        // already embody them — Claude must keep those verbatim.
+        progression_rules: {
+          lifts: "8 → 10 → 12 reps at the same weight, then +5% weight back to 8; every working set must hit the rung; already computed in the strength sessions — keep them exactly.",
+          long_run: "+12 min per week; every 4th loading week (deload) ~70% — already computed in the long-run session — keep it exactly.",
+          tempo_intervals: "No fixed method: Jared designs these weekly. Give ONE sensible preliminary suggestion each, derived from last week's actual runs below.",
+        },
+        last_week_runs: lastRuns.map((w) => ({
+          day: mytDay(w.started_at), name: w.custom_name ?? w.name, km: w.distance_km, min: w.duration_min, avg_hr: w.avg_hr,
+          pace_min_per_km: w.distance_km && w.duration_min ? Math.round((Number(w.duration_min) / Number(w.distance_km)) * 100) / 100 : null,
+        })),
         recent_workouts: (recent ?? []).map((w) => ({ sport: w.sport, km: w.distance_km, at: w.started_at })),
         // Garmin wellness via intervals.icu — HRV/resting-HR trends and short
         // sleep justify easing a week; empty when the feed isn't connected.
@@ -274,6 +380,10 @@ Deno.serve(async (req) => {
     }
 
     const totalMin = sessions.reduce((a, s) => a + (s.planned_minutes ?? 0), 0);
+    if (body.dry_run === true) {
+      return json({ dry_run: true, week: { week_start: weekStartStr, block, focus, planned_km: runKm, planned_minutes: totalMin, generated_by: generatedBy },
+        sessions, progression, claude_error: claudeError });
+    }
     const { data: week, error: werr } = await svc.from("tr_plan_weeks").upsert({
       user_id: userId, race_id: race?.id ?? null, week_start: weekStartStr, block, focus,
       planned_km: runKm, planned_minutes: totalMin, generated_by: generatedBy,
@@ -310,7 +420,7 @@ Deno.serve(async (req) => {
     const { data: inserted, error: serr } = await svc.from("tr_planned_sessions").insert(rows).select();
     if (serr) return json({ error: serr.message }, 500);
 
-    return json({ week, sessions: inserted, calendar_pushed: pushed, generated_by: generatedBy, claude_error: claudeError });
+    return json({ week, sessions: inserted, calendar_pushed: pushed, generated_by: generatedBy, progression, claude_error: claudeError });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }

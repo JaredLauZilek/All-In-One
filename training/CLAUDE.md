@@ -179,6 +179,25 @@ Telegram ───────── tr-telegram-webhook  (verify_jwt FALSE, sec
   falls back to the skeleton. `generated_by` records `rules` vs `rules+claude`.
 - Regeneration replaces only **status='planned'** rows (done/skipped survive) and
   deletes their old calendar events first.
+- **Jared's progression rules (2026-09-07)** run AFTER the skeleton, BEFORE Claude,
+  from LAST WEEK's actual workouts (the 7 days before the target week):
+  - **Lifts**: each Hevy session becomes a strength session on the same weekday,
+    titled "<Hevy title> (Hevy)", detail = one line per exercise. Rep ladder at the
+    SAME weight: 8 → 10 → 12; once every working set hits 12, weight +5% (rounded to
+    2.5 kg ≥30 kg, else 1 kg; at least one step) and back to 8. "Achieved" = the
+    LOWEST reps across working sets; a missed rung repeats (stagnation handled).
+    Bodyweight: reps ladder only. The template's generic strength days are dropped.
+  - **Long run**: last week's longest run +12 min (rounded to 5), km scaled at last
+    week's pace; on a deload week ~70% ("absorb week"). Skipped on race/taper weeks.
+  - **Tempo / intervals**: no rule — Claude gets `last_week_runs` (name, km, min, HR,
+    pace) and must give ONE preliminary suggestion each; Jared redesigns by hand.
+  - Claude's system prompt marks "(Hevy)" strength sessions and the long run as
+    HARD RULES to return unchanged. `dry_run: true` returns the computed week +
+    `progression` without writing or touching the calendar (used for testing).
+- **Calendar controls in the week popup**: "Push to Calendar" = `tr-plan-edit`
+  `push_week` → creates events for sessions without one and PATCHES existing ones
+  (never duplicates; rest/skipped excluded); "Clear" = `clear_week` → deletes the
+  week's events, sessions stay. 📅 on a session line = it has an event.
 
 ## Secrets (Supabase → Edge Functions → Secrets)
 
