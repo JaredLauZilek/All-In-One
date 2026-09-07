@@ -2,8 +2,10 @@
 //
 // Pipeline: deterministic rule engine builds the skeleton (periodized block from
 // weeks-to-race, run-volume progression from recent ACTUAL volume, a race-type
-// session template) → optional Claude pass adapts it to what really happened
-// (missed sessions, big fatigue) within guardrails → rows written to
+// session template) → deconflict pass spreads the days (hard run + lift never
+// share a day while another day is free) → optional Claude pass adapts to what
+// actually happened AND to Jared's Google Calendar for the week (busy/all-day
+// blocks push sessions to other days) within guardrails → rows written to
 // tr_plan_weeks / tr_planned_sessions → non-rest sessions pushed to Google
 // Calendar when the google secrets are configured.
 //
@@ -183,6 +185,35 @@ function skeleton(raceType: string, block: string, weekStart: Date, runKm: numbe
   return s;
 }
 
+/* ---------------- day distribution: de-conflict ----------------
+   A hard run (tempo/intervals/hyrox/brick/long) and a strength session must
+   not share a day while another weekday is free — the exact stacking Jared
+   flagged (Legs pinned to last week's weekday + template tempo on the same
+   day, with Wednesday empty). Lift CONTENT is his progression and never
+   changes; only the date moves. Rest days are not eaten. */
+const isHard = (s: Sess) =>
+  (s.sport === "run" && (s.intensity === "tempo" || s.intensity === "intervals" || /long/i.test(s.title))) ||
+  s.sport === "hyrox" || s.sport === "brick";
+
+function deconflict(sessions: Sess[], weekStart: Date): Sess[] {
+  const dayOf = (s: Sess) => Math.round((new Date(s.session_date + "T00:00:00Z").getTime() - weekStart.getTime()) / DAY);
+  const load = (day: number) => sessions.filter((s) => dayOf(s) === day && s.sport !== "rest");
+  const restDays = new Set(sessions.filter((s) => s.sport === "rest").map(dayOf));
+  for (const st of sessions.filter((s) => s.sport === "strength")) {
+    const day = dayOf(st);
+    if (!load(day).some((s) => s !== st && isHard(s))) continue; // no collision
+    // nearest free day (no hard session, no other strength, not a rest day)
+    const candidates = [-1, 1, -2, 2, -3, 3, -4, 4, -5, 5, -6, 6]
+      .map((d) => day + d)
+      .filter((d) => d >= 0 && d <= 6 && !restDays.has(d))
+      .filter((d) => !load(d).some((s) => isHard(s) || s.sport === "strength"));
+    const empty = candidates.find((d) => load(d).length === 0);
+    const target = empty ?? candidates[0];
+    if (target !== undefined) st.session_date = iso(addDays(weekStart, target));
+  }
+  return sessions;
+}
+
 /* ---------------- Google Calendar (optional) ---------------- */
 async function gcalToken(): Promise<string | null> {
   const id = Deno.env.get("GOOGLE_CLIENT_ID"), secret = Deno.env.get("GOOGLE_CLIENT_SECRET"), refresh = Deno.env.get("GOOGLE_REFRESH_TOKEN");
@@ -193,6 +224,42 @@ async function gcalToken(): Promise<string | null> {
   });
   if (!r.ok) return null;
   return (await r.json()).access_token ?? null;
+}
+
+/* Jared's OWN commitments for the target week (his 🏋️ training events are
+   excluded) — fed to the Claude pass so sessions dodge blocked days. */
+async function gcalBusy(access: string, weekStart: Date): Promise<{ date: string; time: string; title: string }[]> {
+  const calId = encodeURIComponent(Deno.env.get("GOOGLE_CALENDAR_ID") ?? "primary");
+  const timeMin = encodeURIComponent(`${iso(weekStart)}T00:00:00+08:00`);
+  const timeMax = encodeURIComponent(`${iso(addDays(weekStart, 7))}T00:00:00+08:00`);
+  const r = await fetch(
+    `https://www.googleapis.com/calendar/v3/calendars/${calId}/events?singleEvents=true&orderBy=startTime&maxResults=50&timeMin=${timeMin}&timeMax=${timeMax}`,
+    { headers: { Authorization: `Bearer ${access}` } },
+  ).catch(() => null);
+  if (!r?.ok) return [];
+  const items = ((await r.json()).items ?? []) as Record<string, any>[];
+  const myt = (s: string) => new Date(new Date(s).getTime() + 8 * 3600_000).toISOString();
+  const out: { date: string; time: string; title: string }[] = [];
+  for (const e of items) {
+    if (e.status === "cancelled") continue;
+    const title = String(e.summary ?? "(busy)");
+    if (title.startsWith("🏋️") || String(e.description ?? "").includes("All-In-One Training")) continue;
+    if (e.start?.date) {
+      // all-day (possibly multi-day: end.date is exclusive)
+      let d = new Date(e.start.date + "T00:00:00Z");
+      const end = new Date((e.end?.date ?? e.start.date) + "T00:00:00Z");
+      let guard = 0;
+      do {
+        out.push({ date: iso(d), time: "all-day", title });
+        d = addDays(d, 1);
+      } while (d < end && ++guard < 7);
+    } else if (e.start?.dateTime) {
+      const st = myt(e.start.dateTime), en = myt(e.end?.dateTime ?? e.start.dateTime);
+      out.push({ date: st.slice(0, 10), time: `${st.slice(11, 16)}–${en.slice(11, 16)}`, title });
+    }
+    if (out.length >= 30) break;
+  }
+  return out;
 }
 
 async function gcalInsert(access: string, sess: Sess, sessionTime: string): Promise<string | null> {
@@ -224,7 +291,11 @@ async function claudeAdjust(ctx: Record<string, unknown>, sessions: Sess[]): Pro
     body: JSON.stringify({
       model, max_tokens: 8000,
       system:
-        "You are the training-plan adjuster inside a personal training app. You receive a rule-generated week skeleton plus what actually happened recently. Adjust the skeleton ONLY where the data justifies it (missed key sessions → don't stack fatigue; strong compliance → keep the plan; a hard race soon → protect the taper). Keep every session_date within the same week, keep 3–9 sessions, keep total minutes within ±20% of the skeleton, and keep sports within: run, ride, swim, strength, hyrox, brick, mobility, rest, other. HARD RULES: any 'strength' session whose title ends in '(Hevy)' and any long-run session carry Jared's own progression rules (see context.progression_rules) — return them UNCHANGED (same date, title, detail, minutes, km). For tempo/interval runs give a concrete preliminary suggestion built from context.last_week_runs; Jared will redesign those by hand. Sharpen other 'detail' text into concrete, personal prescriptions. Respond with ONLY a JSON object: {\"focus\": string, \"sessions\": [{\"session_date\",\"sport\",\"title\",\"detail\",\"planned_minutes\",\"planned_km\",\"intensity\"}]} — no markdown fences, no commentary.",
+        "You are the training-plan adjuster inside a personal training app. You receive a rule-generated week skeleton plus what actually happened recently. Adjust the skeleton ONLY where the data justifies it (missed key sessions → don't stack fatigue; strong compliance → keep the plan; a hard race soon → protect the taper). Keep every session_date within the same week, keep 3–9 sessions, keep total minutes within ±20% of the skeleton, and keep sports within: run, ride, swim, strength, hyrox, brick, mobility, rest, other.\n" +
+        "CONTENT RULES: any 'strength' session whose title ends in '(Hevy)' and any long-run session carry Jared's own progression rules (see context.progression_rules) — keep their title, detail, planned_minutes and planned_km VERBATIM; you MAY change their session_date for better distribution. For tempo/interval runs give a concrete preliminary suggestion built from context.last_week_runs; Jared will redesign those by hand. Sharpen other 'detail' text into concrete, personal prescriptions.\n" +
+        "DISTRIBUTION RULES (these caused real complaints — take them seriously): (1) NEVER put a hard run (tempo, intervals, hyrox, brick or the long run) on the same day as a strength session while any other non-rest day that week has nothing — spread the load; (2) avoid leaving a weekday empty while another weekday is double-booked; (3) put easy/mobility days after the hardest days; (4) avoid a heavy LEGS lift the day before the long run when another slot exists.\n" +
+        "CALENDAR RULES: context.calendar lists Jared's existing commitments for this week (MYT times; his training slot is around context.session_time for 1–1.5h). Do NOT schedule sessions on days with an all-day commitment; avoid days whose busy blocks overlap the training slot; if the week is so constrained that a compromise is unavoidable, pick the least-bad day and say so in that session's detail.\n" +
+        "Respond with ONLY a JSON object: {\"focus\": string, \"sessions\": [{\"session_date\",\"sport\",\"title\",\"detail\",\"planned_minutes\",\"planned_km\",\"intensity\"}]} — no markdown fences, no commentary.",
       messages: [{ role: "user", content: JSON.stringify({ context: ctx, skeleton: sessions }) }],
     }),
   });
@@ -238,9 +309,12 @@ async function claudeAdjust(ctx: Record<string, unknown>, sessions: Sess[]): Pro
     .filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
   try {
     const parsed = JSON.parse(text.replace(/^```json?\s*|```\s*$/g, ""));
+    const weekDates = new Set(sessions.map((s) => s.session_date));
+    const [lo, hi] = [ctx.week_start as string, ctx.week_end as string];
     const ok = Array.isArray(parsed.sessions) && parsed.sessions.length >= 3 && parsed.sessions.length <= 9 &&
       parsed.sessions.every((x: Sess) =>
         typeof x.session_date === "string" && typeof x.title === "string" &&
+        (!lo || !hi || (x.session_date >= lo && x.session_date <= hi) || weekDates.has(x.session_date)) &&
         ["run", "ride", "swim", "strength", "hyrox", "brick", "mobility", "rest", "other"].includes(x.sport));
     if (!ok) return { error: `Claude output failed validation: ${text.slice(0, 200)}` };
     return { sessions: parsed.sessions, focus: typeof parsed.focus === "string" ? parsed.focus : undefined };
@@ -345,10 +419,17 @@ Deno.serve(async (req) => {
       };
       progression.long_run = { last_min: Math.round(D), next_min: target, deload: block === "deload" };
     }
+    // spread the week BEFORE the Claude pass — Jared's lifts land on last
+    // week's weekdays, which can stack onto a template quality-run day
+    deconflict(sessions, weekStart);
     sessions.sort((a, b) => a.session_date.localeCompare(b.session_date));
     let focus = BLOCK_FOCUS[block];
     let generatedBy = "rules";
     let claudeError: string | null = null;
+
+    // one calendar token for busy-block digestion AND the event push below
+    const access = await gcalToken();
+    const busy = access ? await gcalBusy(access, weekStart) : [];
 
     if (body.use_claude !== false) {
       const [{ data: lastWeekSessions }, { data: wellness }] = await Promise.all([
@@ -360,7 +441,11 @@ Deno.serve(async (req) => {
           .order("day", { ascending: false }).limit(14),
       ]);
       const adjusted = await claudeAdjust({
-        week_start: weekStartStr, block, weeks_to_race: weeksOut,
+        week_start: weekStartStr, week_end: iso(addDays(weekStart, 6)), block, weeks_to_race: weeksOut,
+        // Jared's real commitments this week (his training events excluded) —
+        // the prompt's CALENDAR RULES schedule around these.
+        calendar: busy,
+        session_time: settings?.session_time ?? "06:30",
         race: race ? { name: race.name, type: race.race_type, date: race.race_date } : null,
         run_km_target: runKm, weekly_hours: settings?.weekly_hours ?? 8,
         last_week: lastWeekSessions ?? [],
@@ -396,7 +481,7 @@ Deno.serve(async (req) => {
     const totalMin = sessions.reduce((a, s) => a + (s.planned_minutes ?? 0), 0);
     if (body.dry_run === true) {
       return json({ dry_run: true, week: { week_start: weekStartStr, block, focus, planned_km: runKm, planned_minutes: totalMin, generated_by: generatedBy },
-        sessions, progression, claude_error: claudeError });
+        sessions, progression, calendar_busy: busy, claude_error: claudeError });
     }
     const { data: week, error: werr } = await svc.from("tr_plan_weeks").upsert({
       user_id: userId, race_id: race?.id ?? null, week_start: weekStartStr, block, focus,
@@ -408,7 +493,6 @@ Deno.serve(async (req) => {
     const { data: old } = await svc.from("tr_planned_sessions").select("id, gcal_event_id")
       .eq("user_id", userId).eq("status", "planned")
       .gte("session_date", weekStartStr).lte("session_date", iso(addDays(weekStart, 6)));
-    const access = await gcalToken();
     if (access) {
       const calId = encodeURIComponent(Deno.env.get("GOOGLE_CALENDAR_ID") ?? "primary");
       for (const o of old ?? []) {

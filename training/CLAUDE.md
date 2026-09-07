@@ -166,6 +166,21 @@ Telegram ───────── tr-telegram-webhook  (verify_jwt FALSE, sec
 
 ## Plan engine (tr-plan-week)
 
+- **Day distribution** (2026-09-07, after Jared caught a tempo run + heavy Legs
+  stacked on one day with Wednesday empty): lifts inherit last week's weekday from
+  Hevy, so a `deconflict()` pass moves any strength session off a hard-run day
+  (tempo/intervals/hyrox/brick/long) to the nearest free non-rest day BEFORE the
+  Claude pass; the Claude prompt now may move progression sessions' DATES (content
+  stays verbatim) and carries explicit distribution rules.
+- **Calendar digestion**: the target week's Google Calendar events (minus our own
+  🏋️ events) are fetched via `gcalBusy()` and fed to Claude as `context.calendar`
+  — all-day commitments block the day, busy blocks overlapping the training slot
+  (`session_time`, ~1–1.5h) steer sessions elsewhere. Dry-run responses include
+  `calendar_busy` for debugging.
+- **The AI prompts live in the edge-function sources** (the `system:` strings in
+  this function's `claudeAdjust()` and the webhook's `askClaude()`) — not in the
+  DB; editing them requires a redeploy.
+
 - Block from weeks-to-race: hyrox/half `base >10w · build 10–5 · peak 4–2 · taper 1`;
   marathon/70.3/IM `base >14 · build 14–7 · peak 6–3 · taper 2`; race week when the
   date falls inside the week; every 4th consecutive loading week becomes a **deload**.
