@@ -18,7 +18,13 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   auto-syncs to it; free API, Basic auth with literal username `API_KEY`; credentials in
   `tr_settings.intervals_athlete_id/_api_key`, added 2026-09-06 after Strava gated its
   API behind a paid Strava subscription — the Strava OAuth path remains in the code,
-  dormant) and Hevy (lifts, full set/rep detail), auto-matched to planned sessions.
+  dormant) and Hevy (lifts, full set/rep detail), auto-matched to planned sessions. **Deletions
+  reconcile too** (2026-09-07): each sync compares the window it just fetched against
+  what's stored and removes intervals.icu activities that vanished upstream, un-ticking
+  any planned session they had completed (`matched_workout_id` has no FK, so it would
+  dangle). Guarded: never after a failed fetch, skipped on an EMPTY fetch (a wrong
+  athlete ID can return 200 `[]` and must not wipe the window), and a 1-day margin
+  keeps the reconciled range strictly inside the fetched range. Reported as `removed`.
 - **Activities tab** (`/training/activities`, added 2026-09-06): intervals.icu-style
   weekly grid — per activity: time/distance/avg HR/pace/estimated steps (run cadence
   ×2 — Garmin sends no per-workout step total) + HR-zone mini-bars from

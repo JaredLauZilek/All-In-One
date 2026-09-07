@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
     /* ---------- intervals.icu (Garmin feed) ---------- */
     const { data: settings } = await svc.from("tr_settings")
       .select("hevy_api_key, intervals_athlete_id, intervals_api_key").eq("user_id", userId).maybeSingle();
-    let intervalsCount = 0, wellnessCount = 0, customZoned = 0;
+    let intervalsCount = 0, wellnessCount = 0, customZoned = 0, intervalsRemoved = 0;
     if (settings?.intervals_athlete_id && settings?.intervals_api_key) {
       try {
         // Basic auth with literal username "API_KEY" — intervals.icu convention.
@@ -128,9 +128,9 @@ Deno.serve(async (req) => {
           const started = /Z|[+-]\d\d:?\d\d$/.test(raw) ? new Date(raw) : new Date(raw + "+08:00");
           const secs = Number(a.moving_time ?? a.elapsed_time) || null;
           // Keep a compact copy of the whole activity: scalars + short arrays
-          // (HR-zone seconds, etc.), nulls and nested objects dropped. The
-          // Activities tab reads steps/cadence/zone-times out of this without
-          // the schema having to chase intervals.icu's field names.
+          // (HR-zone seconds, etc.), nulls and nested objects dropped. NOTE:
+          // this upsert rewrites data wholesale every run — anything that must
+          // survive a sync lives in real columns (hr_zone_secs & co, 0006).
           const detail: Record<string, unknown> = {};
           for (const [k, v] of Object.entries(a)) {
             if (v == null || (typeof v === "object" && !Array.isArray(v))) continue;
@@ -153,6 +153,33 @@ Deno.serve(async (req) => {
           if (error) throw new Error(error.message);
         }
         intervalsCount = rows.length;
+
+        /* ---------- reconcile deletions ----------
+           The upsert above only adds/updates. An activity Jared deletes on
+           intervals.icu would otherwise linger here forever as a ghost. So:
+           anything we hold for this window that the API no longer returns is
+           gone upstream -> remove it, and un-tick any planned session it had
+           completed (matched_workout_id has no FK, so it would dangle).
+           Guards: (1) we're inside the try, so a failed fetch never gets here;
+           (2) an EMPTY fetch is skipped - a wrong athlete ID can return 200 []
+           and must not wipe the window; (3) a 1-day margin keeps the reconciled
+           range strictly inside the fetched range, so nothing we didn't fetch
+           can be mistaken for deleted. */
+        if (rows.length > 0) {
+          const seen = new Set(rows.map((r) => r.external_id));
+          const reconcileFrom = new Date(since.getTime() + 86400_000).toISOString();
+          const { data: held } = await svc.from("tr_workouts").select("id, external_id")
+            .eq("user_id", userId).eq("source", "intervals").gte("started_at", reconcileFrom);
+          const staleIds = (held ?? []).filter((w) => !seen.has(w.external_id)).map((w) => w.id);
+          if (staleIds.length) {
+            await svc.from("tr_planned_sessions")
+              .update({ status: "planned", matched_workout_id: null, updated_at: new Date().toISOString() })
+              .in("matched_workout_id", staleIds);
+            const { error: delErr } = await svc.from("tr_workouts").delete().in("id", staleIds);
+            if (delErr) throw new Error(`reconcile: ${delErr.message}`);
+            intervalsRemoved = staleIds.length;
+          }
+        }
       } catch (e) { errors.push(`intervals.icu: ${String(e)}`); }
 
       /* ---------- custom HR zones: re-bucket raw HR streams ----------
@@ -161,8 +188,8 @@ Deno.serve(async (req) => {
          that were true at the time of the activity (activities older than
          the earliest version use the earliest). Each activity's raw
          heartrate stream is fetched once per applicable zones-version
-         (data.custom_zones_key embeds the version date) and seconds are
-         counted against that version's ceilings. */
+         (hr_zones_key embeds the version date) and seconds are counted
+         against that version's ceilings. */
       const { data: zoneRows } = await svc.from("tr_hr_zones")
         .select("effective_from, ceilings").eq("user_id", userId)
         .order("effective_from", { ascending: true });
@@ -238,9 +265,9 @@ Deno.serve(async (req) => {
           { headers: { Authorization: auth } },
         );
         if (!r.ok) throw new Error(`HTTP ${r.status}`);
-        const days = await r.json();
-        if (Array.isArray(days)) {
-          const rows = days
+        const days2 = await r.json();
+        if (Array.isArray(days2)) {
+          const rows = days2
             .filter((d: Record<string, unknown>) => /^\d{4}-\d{2}-\d{2}$/.test(String(d.id)))
             .map((d: Record<string, unknown>) => ({
               user_id: userId, day: d.id,
@@ -252,7 +279,6 @@ Deno.serve(async (req) => {
               data: { spO2: d.spO2 ?? null, fatigue: d.fatigue ?? null, soreness: d.soreness ?? null, hrvSDNN: d.hrvSDNN ?? null },
               updated_at: new Date().toISOString(),
             }))
-            // keep only days that carry at least one real signal
             .filter((w) => w.resting_hr != null || w.hrv != null || w.sleep_secs != null || w.weight_kg != null);
           if (rows.length) {
             const { error } = await svc.from("tr_wellness").upsert(rows, { onConflict: "user_id,day" });
@@ -326,7 +352,7 @@ Deno.serve(async (req) => {
     }
 
     await svc.from("tr_settings").update({ last_synced_at: new Date().toISOString() }).eq("user_id", userId);
-    return json({ intervals: intervalsCount, wellness: wellnessCount, custom_zoned: customZoned, strava: stravaCount, hevy: hevyCount, matched, errors });
+    return json({ intervals: intervalsCount, removed: intervalsRemoved, wellness: wellnessCount, custom_zoned: customZoned, strava: stravaCount, hevy: hevyCount, matched, errors });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
