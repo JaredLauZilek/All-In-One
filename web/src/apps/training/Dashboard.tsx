@@ -6,6 +6,7 @@
 // The once-a-week ritual: Sync now → review the week → Generate next week
 // (rule engine + Claude in the tr-plan-week edge fn, pushed to Google
 // Calendar when configured). Mid-week changes happen through the Telegram bot.
+import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { RefreshCw, Sparkles, Check, X, CalendarDays } from "lucide-react";
 import { supabase } from "../../lib/supabase";
@@ -336,48 +337,78 @@ function ProgressionCard({ weeks, workouts, currentWeek }: {
   );
 }
 
-/* ---------------- weekly totals: line charts (last 8 weeks) ---------------- */
+/* ---------------- weekly totals: line charts ---------------- */
+/* Headline = LAST COMPLETED week (Jared: a Monday showing "0 km" is
+   discouraging); the in-progress week is a small "so far" note instead. */
 interface WeekPoint { label: string; start: string; value: number }
-function weeklySeries(workouts: TrWorkout[], currentWeek: string, keep: (w: TrWorkout) => boolean, pick: (w: TrWorkout) => number): WeekPoint[] {
-  return Array.from({ length: CHART_WEEKS }, (_, i) => {
-    const start = addDaysISO(currentWeek, -7 * (CHART_WEEKS - 1 - i)), end = addDaysISO(start, 6);
+function weeklySeries(workouts: TrWorkout[], endWeek: string, n: number, keep: (w: TrWorkout) => boolean, pick: (w: TrWorkout) => number): WeekPoint[] {
+  return Array.from({ length: n }, (_, i) => {
+    const start = addDaysISO(endWeek, -7 * (n - 1 - i)), end = addDaysISO(start, 6);
     const value = workouts.filter((w) => keep(w) && workoutDay(w) >= start && workoutDay(w) <= end)
       .reduce((a, w) => a + pick(w), 0);
     return { label: start.slice(5), start, value };
   });
 }
+const weekLabel = (start: string) => {
+  const a = new Date(start + "T00:00:00"), b = new Date(addDaysISO(start, 6) + "T00:00:00");
+  const f = (d: Date) => `${d.getDate()} ${d.toLocaleString("en-GB", { month: "short" })}`;
+  return `${f(a)} – ${f(b)}`;
+};
 
-/* One series, weekly totals, current week emphasised. Direct labels only on the
-   current week and the peak (never every point); every dot has a hover title. */
+/* Shared hover maths: nearest week index from a mouse/touch x within the SVG. */
+function useNearest(count: number, L: number, R: number, W: number) {
+  const [hover, setHover] = useState<number | null>(null);
+  const onMove = (e: React.MouseEvent<SVGSVGElement> | React.TouchEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const clientX = "touches" in e ? e.touches[0]?.clientX ?? 0 : e.clientX;
+    const px = ((clientX - rect.left) / rect.width) * W;
+    const i = Math.round(((px - L) / (W - L - R)) * (count - 1));
+    setHover(Math.max(0, Math.min(count - 1, i)));
+  };
+  return { hover, onMove, clear: () => setHover(null) };
+}
+
+/* One series, weekly totals, last point emphasised. Hover/touch anywhere → crosshair
+   + tooltip with that week's value; direct labels only on the last point and the peak. */
 function WeeklyLineChart({ series, fmt, unit, lineClass, areaClass, dotClass }: {
   series: WeekPoint[]; fmt: (v: number) => string; unit: string; lineClass: string; areaClass: string; dotClass: string;
 }) {
   const W = 320, H = 120, L = 10, R = 10, T = 16, B = 18;
+  const { hover, onMove, clear } = useNearest(series.length, L, R, W);
   const max = Math.max(...series.map((s) => s.value), 1) * 1.15;
   const x = (i: number) => L + (i * (W - L - R)) / (series.length - 1);
   const y = (v: number) => H - B - (v / max) * (H - T - B);
   const pts = series.map((s, i) => `${x(i).toFixed(1)},${y(s.value).toFixed(1)}`);
   const last = series.length - 1;
   const peak = series.reduce((m, s, i) => (s.value > series[m].value ? i : m), 0);
+  const hp = hover != null ? series[hover] : null;
   return (
-    <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full">
-      <line x1={L} x2={W - R} y1={H - B} y2={H - B} className="stroke-slate-200" strokeWidth={1} />
-      <path d={`M${x(0).toFixed(1)},${H - B}L${pts.join("L")}L${x(last).toFixed(1)},${H - B}Z`} className={areaClass} stroke="none" />
-      <path d={`M${pts.join("L")}`} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" className={lineClass} />
-      {series.map((s, i) => (
-        <g key={s.start}>
-          <circle cx={x(i)} cy={y(s.value)} r={i === last ? 4.5 : 3} strokeWidth={2} className={cn(dotClass, "stroke-surface")}>
-            <title>{`Week of ${s.start}: ${fmt(s.value)} ${unit}`}</title>
-          </circle>
-          {(i === last || (i === peak && peak !== last && s.value > 0)) && (
-            <text x={x(i)} y={y(s.value) - 8} textAnchor={i === last ? "end" : "middle"} fontSize={9}
-              className="fill-slate-700 font-mono font-semibold">{fmt(s.value)}</text>
-          )}
-          <text x={x(i)} y={H - 5} textAnchor={i === 0 ? "start" : i === last ? "end" : "middle"} fontSize={8}
-            className={cn("font-mono", i === last ? "fill-slate-700 font-semibold" : "fill-slate-400")}>{s.label}</text>
-        </g>
-      ))}
-    </svg>
+    <div className="relative">
+      <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full touch-none select-none"
+        onMouseMove={onMove} onMouseLeave={clear} onTouchStart={onMove} onTouchMove={onMove} onTouchEnd={clear}>
+        <line x1={L} x2={W - R} y1={H - B} y2={H - B} className="stroke-slate-200" strokeWidth={1} />
+        <path d={`M${x(0).toFixed(1)},${H - B}L${pts.join("L")}L${x(last).toFixed(1)},${H - B}Z`} className={areaClass} stroke="none" />
+        <path d={`M${pts.join("L")}`} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" className={lineClass} />
+        {hover != null && <line x1={x(hover)} x2={x(hover)} y1={T - 4} y2={H - B} className="stroke-slate-300" strokeWidth={1} />}
+        {series.map((s, i) => (
+          <g key={s.start}>
+            <circle cx={x(i)} cy={y(s.value)} r={i === hover ? 5 : i === last ? 4.5 : 3} strokeWidth={2} className={cn(dotClass, "stroke-surface")} />
+            {hover == null && (i === last || (i === peak && peak !== last && s.value > 0)) && (
+              <text x={x(i)} y={y(s.value) - 8} textAnchor={i === last ? "end" : "middle"} fontSize={9}
+                className="fill-slate-700 font-mono font-semibold">{fmt(s.value)}</text>
+            )}
+            <text x={x(i)} y={H - 5} textAnchor={i === 0 ? "start" : i === last ? "end" : "middle"} fontSize={8}
+              className={cn("font-mono", i === last ? "fill-slate-700 font-semibold" : "fill-slate-400")}>{s.label}</text>
+          </g>
+        ))}
+      </svg>
+      {hp && (
+        <div className="pointer-events-none absolute top-0 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2 py-1 font-mono text-[10px] text-white shadow-sm"
+          style={{ left: `${(x(hover!) / W) * 100}%` }}>
+          {weekLabel(hp.start)} · <b>{fmt(hp.value)} {unit}</b>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -388,55 +419,93 @@ function WeekDelta({ cur, prev, fmt, unit }: { cur: number; prev: number; fmt: (
   return (
     <p className={cn("font-mono text-[11px] font-semibold", diff > 0 ? "text-emerald-600" : diff < 0 ? "text-red-500" : "text-slate-400")}>
       {diff > 0 ? "▲" : diff < 0 ? "▼" : "±"} {pct != null ? `${Math.abs(pct)}% · ` : ""}{diff >= 0 ? "+" : "−"}{fmt(Math.abs(diff))} {unit}
-      <span className="font-normal text-slate-400"> vs last week</span>
+      <span className="font-normal text-slate-400"> vs the week before</span>
     </p>
   );
 }
 
-function RunKmCard({ workouts, currentWeek }: { workouts: TrWorkout[]; currentWeek: string }) {
-  const series = weeklySeries(workouts, currentWeek, (w) => w.sport === "run", (w) => Number(w.distance_km) || 0);
+function WeeklyTotalCard({ title, subtitle, unit, fmt, workouts, currentWeek, keep, pick, lineClass, areaClass, dotClass }: {
+  title: string; subtitle: string; unit: string; fmt: (v: number) => string; workouts: TrWorkout[]; currentWeek: string;
+  keep: (w: TrWorkout) => boolean; pick: (w: TrWorkout) => number; lineClass: string; areaClass: string; dotClass: string;
+}) {
+  const lastWeek = addDaysISO(currentWeek, -7);
+  const series = weeklySeries(workouts, lastWeek, CHART_WEEKS, keep, pick);
   const cur = series[series.length - 1].value, prev = series[series.length - 2].value;
-  const fmt = (v: number) => v.toFixed(1);
+  const soFar = weeklySeries(workouts, currentWeek, 1, keep, pick)[0].value;
   return (
     <Card>
-      <CardHeader title="Run km" subtitle={`Weekly total · last ${CHART_WEEKS} weeks`}
-        action={<span className="font-mono text-lg font-bold text-slate-900">{fmt(cur)} km</span>} />
+      <CardHeader title={title} subtitle={subtitle}
+        action={
+          <div className="text-right">
+            <p className="font-mono text-lg font-bold leading-tight text-slate-900">{fmt(cur)} {unit}</p>
+            <p className="text-[10px] text-slate-400">last week · this week so far {fmt(soFar)}</p>
+          </div>
+        } />
       <div className="px-5 pb-4">
-        <WeekDelta cur={cur} prev={prev} fmt={fmt} unit="km" />
+        <WeekDelta cur={cur} prev={prev} fmt={fmt} unit={unit} />
         <div className="mt-2">
-          <WeeklyLineChart series={series} fmt={fmt} unit="km" lineClass="stroke-indigo-600" areaClass="fill-indigo-600/10" dotClass="fill-indigo-600" />
+          <WeeklyLineChart series={series} fmt={fmt} unit={unit} lineClass={lineClass} areaClass={areaClass} dotClass={dotClass} />
         </div>
       </div>
     </Card>
+  );
+}
+
+function RunKmCard({ workouts, currentWeek }: { workouts: TrWorkout[]; currentWeek: string }) {
+  return (
+    <WeeklyTotalCard title="Run km" subtitle={`Weekly total · last ${CHART_WEEKS} completed weeks`} unit="km"
+      fmt={(v) => v.toFixed(1)} workouts={workouts} currentWeek={currentWeek}
+      keep={(w) => w.sport === "run"} pick={(w) => Number(w.distance_km) || 0}
+      lineClass="stroke-indigo-600" areaClass="fill-indigo-600/10" dotClass="fill-indigo-600" />
   );
 }
 
 function LiftedCard({ workouts, currentWeek }: { workouts: TrWorkout[]; currentWeek: string }) {
-  const series = weeklySeries(workouts, currentWeek, (w) => w.source === "hevy", (w) => tonnageKg(hevyExercises(w)));
-  const cur = series[series.length - 1].value, prev = series[series.length - 2].value;
-  const fmt = (v: number) => Math.round(v).toLocaleString();
   return (
-    <Card>
-      <CardHeader title="Weight lifted" subtitle={`Weekly volume (Σ weight × reps, Hevy) · last ${CHART_WEEKS} weeks`}
-        action={<span className="font-mono text-lg font-bold text-slate-900">{fmt(cur)} kg</span>} />
-      <div className="px-5 pb-4">
-        <WeekDelta cur={cur} prev={prev} fmt={fmt} unit="kg" />
-        <div className="mt-2">
-          <WeeklyLineChart series={series} fmt={fmt} unit="kg" lineClass="stroke-slate-700" areaClass="fill-slate-700/10" dotClass="fill-slate-700" />
-        </div>
-      </div>
-    </Card>
+    <WeeklyTotalCard title="Weight lifted" subtitle={`Weekly volume (Σ weight × reps, Hevy) · last ${CHART_WEEKS} completed weeks`} unit="kg"
+      fmt={(v) => Math.round(v).toLocaleString()} workouts={workouts} currentWeek={currentWeek}
+      keep={(w) => w.source === "hevy"} pick={(w) => tonnageKg(hevyExercises(w))}
+      lineClass="stroke-slate-700" areaClass="fill-slate-700/10" dotClass="fill-slate-700" />
   );
 }
 
-/* ---------------- sets per muscle group (Hevy exercise library) ---------------- */
-/* Each logged exercise carries Hevy's template_id (stored by tr-sync since 0011);
-   the library row gives its primary + secondary muscle groups. Working sets are
-   counted in full for the primary group and shown separately for secondaries. */
+/* ---------------- sets per muscle group (Hevy-style) ---------------- */
+/* Hevy's convention: a working set counts 1 for the exercise's primary muscle
+   and 0.5 for each secondary muscle (hence totals like 27.5). Weekly buckets,
+   one line per muscle, legend rows toggle lines, totals over the period.
+   Colours are assigned in a FIXED order per muscle (never by rank), so a muscle
+   keeps its colour whatever else is shown. */
+const MUSCLE_ORDER = ["chest", "triceps", "lats", "biceps", "shoulders", "upper_back", "forearms", "quadriceps",
+  "hamstrings", "glutes", "abdominals", "calves", "lower_back", "traps", "adductors", "abductors", "cardio", "full_body", "neck", "other"];
+// Warm/cool alternation so neighbouring series stay apart under colour-vision
+// deficiency; the legend names every line, so colour is never the only cue.
+const SERIES_COLORS = [
+  { stroke: "stroke-sky-500", fill: "fill-sky-500", bg: "bg-sky-500" },
+  { stroke: "stroke-orange-500", fill: "fill-orange-500", bg: "bg-orange-500" },
+  { stroke: "stroke-violet-500", fill: "fill-violet-500", bg: "bg-violet-500" },
+  { stroke: "stroke-emerald-500", fill: "fill-emerald-500", bg: "bg-emerald-500" },
+  { stroke: "stroke-pink-500", fill: "fill-pink-500", bg: "bg-pink-500" },
+  { stroke: "stroke-amber-400", fill: "fill-amber-400", bg: "bg-amber-400" },
+  { stroke: "stroke-teal-500", fill: "fill-teal-500", bg: "bg-teal-500" },
+  { stroke: "stroke-red-500", fill: "fill-red-500", bg: "bg-red-500" },
+  { stroke: "stroke-indigo-600", fill: "fill-indigo-600", bg: "bg-indigo-600" },
+  { stroke: "stroke-fuchsia-500", fill: "fill-fuchsia-500", bg: "bg-fuchsia-500" },
+];
+const muscleColor = (g: string) => {
+  const i = MUSCLE_ORDER.indexOf(g);
+  return i >= 0 && i < SERIES_COLORS.length ? SERIES_COLORS[i]
+    : { stroke: "stroke-slate-400", fill: "fill-slate-400", bg: "bg-slate-400" };
+};
+const RANGE_OPTIONS = [4, 8, 12] as const;
+const fmtSets = (v: number) => (Number.isInteger(v) ? String(v) : v.toFixed(1));
+
 function MuscleGroupCard({ workouts, currentWeek }: { workouts: TrWorkout[]; currentWeek: string }) {
-  const inWeek = (start: string) => workouts.filter((w) => w.source === "hevy" && workoutDay(w) >= start && workoutDay(w) <= addDaysISO(start, 6));
-  const thisWeek = inWeek(currentWeek), lastWeek = inWeek(addDaysISO(currentWeek, -7));
-  const ids = [...new Set([...thisWeek, ...lastWeek].flatMap((w) => hevyExercises(w).map((e) => e.template_id)).filter((x): x is string => !!x))].sort();
+  const [weeks, setWeeks] = useState<(typeof RANGE_OPTIONS)[number]>(4);
+  const [hidden, setHidden] = useState<Set<string> | null>(null); // null = default (top 6 shown)
+  const lastWeek = addDaysISO(currentWeek, -7);
+  const rangeStart = addDaysISO(lastWeek, -7 * (weeks - 1));
+  const lifts = workouts.filter((w) => w.source === "hevy" && workoutDay(w) >= rangeStart && workoutDay(w) <= addDaysISO(lastWeek, 6));
+  const ids = [...new Set(lifts.flatMap((w) => hevyExercises(w).map((e) => e.template_id)).filter((x): x is string => !!x))].sort();
   const catalog = useQuery({
     queryKey: ["tr-hevy-exercises", ids.join(",")],
     enabled: ids.length > 0,
@@ -447,63 +516,123 @@ function MuscleGroupCard({ workouts, currentWeek }: { workouts: TrWorkout[]; cur
       return new Map((data as TrHevyExercise[]).map((r) => [r.template_id, r]));
     },
   });
-  const tally = (list: TrWorkout[]) => {
-    const primary = new Map<string, number>(), secondary = new Map<string, number>();
-    let unmapped = 0;
-    for (const w of list) for (const ex of hevyExercises(w)) {
+
+  // sets[muscle][weekIndex]
+  const sets = new Map<string, number[]>();
+  let unmapped = 0;
+  const bump = (g: string, wi: number, n: number) => {
+    if (!sets.has(g)) sets.set(g, new Array(weeks).fill(0));
+    sets.get(g)![wi] += n;
+  };
+  for (const w of lifts) {
+    const wi = Math.floor((new Date(workoutDay(w) + "T00:00:00Z").getTime() - new Date(rangeStart + "T00:00:00Z").getTime()) / (7 * 86400_000));
+    if (wi < 0 || wi >= weeks) continue;
+    for (const ex of hevyExercises(w)) {
       const n = workingSets(ex.sets);
       const row = ex.template_id ? catalog.data?.get(ex.template_id) : undefined;
       if (!row?.primary_muscle_group) { unmapped += n; continue; }
-      primary.set(row.primary_muscle_group, (primary.get(row.primary_muscle_group) ?? 0) + n);
-      for (const g of row.secondary_muscle_groups ?? []) secondary.set(g, (secondary.get(g) ?? 0) + n);
+      bump(row.primary_muscle_group, wi, n);
+      for (const g of row.secondary_muscle_groups ?? []) bump(g, wi, n * 0.5);
     }
-    return { primary, secondary, unmapped };
+  }
+  const rows = [...sets.entries()].map(([g, arr]) => ({ g, total: arr.reduce((a, b) => a + b, 0), arr }))
+    .sort((a, b) => b.total - a.total);
+  const defaultHidden = new Set(rows.slice(6).map((r) => r.g));
+  const isHidden = (g: string) => (hidden ?? defaultHidden).has(g);
+  const toggle = (g: string) => {
+    const next = new Set(hidden ?? defaultHidden);
+    if (next.has(g)) next.delete(g); else next.add(g);
+    setHidden(next);
   };
-  const cur = tally(thisWeek), prev = tally(lastWeek);
-  const groups = [...new Set([...cur.primary.keys(), ...cur.secondary.keys()])]
-    .map((g) => ({ g, p: cur.primary.get(g) ?? 0, s: cur.secondary.get(g) ?? 0, prevP: prev.primary.get(g) ?? 0 }))
-    .sort((a, b) => b.p - a.p || b.s - a.s);
-  const max = Math.max(1, ...groups.map((r) => r.p + r.s));
-  const totalSets = thisWeek.reduce((a, w) => a + hevyExercises(w).reduce((b, e) => b + workingSets(e.sets), 0), 0);
+  const shown = rows.filter((r) => !isHidden(r.g));
+  const labels = Array.from({ length: weeks }, (_, i) => addDaysISO(rangeStart, 7 * i));
+
+  // chart
+  const W = 320, H = 150, L = 22, R = 10, T = 10, B = 18;
+  const { hover, onMove, clear } = useNearest(weeks, L, R, W);
+  const maxV = Math.max(2, ...shown.flatMap((r) => r.arr)) * 1.1;
+  const x = (i: number) => L + (i * (W - L - R)) / Math.max(1, weeks - 1);
+  const y = (v: number) => H - B - (v / maxV) * (H - T - B);
+  const gridStep = maxV > 20 ? 5 : 2;
+  const grid: number[] = []; for (let v = 0; v <= maxV; v += gridStep) grid.push(v);
 
   return (
     <Card>
-      <CardHeader title="Sets per muscle group" subtitle="This week · working sets · Hevy exercise library"
-        action={<span className="font-mono text-lg font-bold text-slate-900">{totalSets} sets</span>} />
-      {thisWeek.length === 0 ? (
-        <p className="px-5 py-6 text-center text-sm text-slate-400">No lifts logged this week yet.</p>
+      <CardHeader title="Set count per muscle" subtitle="Working sets · primary 1 · secondary ½ (Hevy's counting)"
+        action={
+          <select value={weeks} onChange={(e) => setWeeks(Number(e.target.value) as (typeof RANGE_OPTIONS)[number])}
+            className="rounded-full border border-slate-200 bg-surface px-2.5 py-1 text-xs font-medium text-slate-700">
+            {RANGE_OPTIONS.map((n) => <option key={n} value={n}>Last {n} weeks</option>)}
+          </select>
+        } />
+      {lifts.length === 0 ? (
+        <p className="px-5 py-6 text-center text-sm text-slate-400">No lifts logged in this range.</p>
       ) : catalog.isPending && ids.length > 0 ? (
         <p className="px-5 py-6 text-center text-sm text-slate-400">Loading exercise library…</p>
       ) : (
-        <div className="px-5 py-4">
-          <div className="mb-2 flex justify-between text-[10px] font-medium uppercase tracking-wide text-slate-400">
-            <span>Muscle</span><span>Sets · +secondary · vs last wk</span>
+        <>
+          <div className="px-5 pt-2"><div className="relative">
+            <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full touch-none select-none"
+              onMouseMove={onMove} onMouseLeave={clear} onTouchStart={onMove} onTouchMove={onMove} onTouchEnd={clear}>
+              {grid.map((v) => (
+                <g key={v}>
+                  <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="stroke-slate-200" strokeWidth={1} strokeDasharray={v === 0 ? undefined : "3 3"} />
+                  <text x={L - 4} y={y(v) + 3} textAnchor="end" fontSize={8} className="fill-slate-400 font-mono">{v}</text>
+                </g>
+              ))}
+              {hover != null && <line x1={x(hover)} x2={x(hover)} y1={T} y2={H - B} className="stroke-slate-300" strokeWidth={1} />}
+              {shown.map((r) => {
+                const c = muscleColor(r.g);
+                const pts = r.arr.map((v, i) => `${x(i).toFixed(1)},${y(v).toFixed(1)}`);
+                return (
+                  <g key={r.g}>
+                    <path d={`M${pts.join("L")}`} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" className={c.stroke} />
+                    {r.arr.map((v, i) => <circle key={i} cx={x(i)} cy={y(v)} r={i === hover ? 4 : 3} strokeWidth={1.5} className={cn(c.fill, "stroke-surface")} />)}
+                  </g>
+                );
+              })}
+              {labels.map((d, i) => (
+                <text key={d} x={x(i)} y={H - 5} textAnchor={i === 0 ? "start" : i === weeks - 1 ? "end" : "middle"} fontSize={8} className="fill-slate-400 font-mono">{d.slice(5)}</text>
+              ))}
+            </svg>
+            {hover != null && shown.length > 0 && (
+              <div className="pointer-events-none absolute top-0 z-10 -translate-x-1/2 whitespace-nowrap rounded-lg bg-ink px-2.5 py-1.5 font-mono text-[10px] text-white shadow-sm"
+                style={{ left: `${(x(hover) / W) * 100}%` }}>
+                <p className="mb-0.5 font-semibold">{weekLabel(labels[hover])}</p>
+                {shown.map((r) => (
+                  <p key={r.g} className="flex items-center gap-1.5">
+                    <span className={cn("inline-block h-2 w-2 rounded-full", muscleColor(r.g).bg)} />
+                    <span className="text-white/70">{muscleLabel(r.g)}</span> <b>{fmtSets(r.arr[hover])}</b>
+                  </p>
+                ))}
+              </div>
+            )}
+          </div></div>
+          <div className="mt-2 border-t border-slate-100">
+            <div className="flex justify-between px-5 py-2 text-[10px] font-medium uppercase tracking-wide text-slate-400">
+              <span>Muscle</span><span>Sets · {weekLabel(rangeStart).split(" – ")[0]} – {weekLabel(lastWeek).split(" – ")[1]}</span>
+            </div>
+            <ul className="divide-y divide-slate-100">
+              {rows.map((r) => {
+                const c = muscleColor(r.g), off = isHidden(r.g);
+                return (
+                  <li key={r.g}>
+                    <button type="button" onClick={() => toggle(r.g)}
+                      className="flex w-full items-center gap-3 px-5 py-2 text-left hover:bg-slate-50">
+                      <span className={cn("flex h-4 w-4 items-center justify-center rounded-md border text-[10px] font-bold text-white",
+                        off ? "border-slate-300 bg-transparent" : cn("border-transparent", c.bg))}>{off ? "" : "✓"}</span>
+                      <span className={cn("flex-1 text-sm", off ? "text-slate-400" : "text-slate-800")}>{muscleLabel(r.g)}</span>
+                      <span className={cn("font-mono text-sm font-semibold", off ? "text-slate-400" : "text-slate-900")}>{fmtSets(r.total)}</span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+            {unmapped > 0 && (
+              <p className="px-5 py-2 text-[11px] text-slate-400">{unmapped} sets from exercises not yet in the library — hit Sync to map them.</p>
+            )}
           </div>
-          <div className="space-y-1.5">
-            {groups.map((r) => {
-              const d = r.p - r.prevP;
-              return (
-                <div key={r.g} className="flex items-center gap-2 font-mono text-[11px]">
-                  <span className="w-24 truncate font-sans font-medium text-slate-700" title={muscleLabel(r.g)}>{muscleLabel(r.g)}</span>
-                  <div className="flex h-3 flex-1 overflow-hidden rounded-full bg-slate-100" title={`${r.p} primary + ${r.s} secondary sets`}>
-                    <div className="h-full bg-indigo-600" style={{ width: `${(r.p / max) * 100}%` }} />
-                    <div className="h-full bg-indigo-600/30" style={{ width: `${(r.s / max) * 100}%` }} />
-                  </div>
-                  <span className="w-6 text-right font-semibold text-slate-900">{r.p}</span>
-                  <span className="w-8 text-right text-slate-400">{r.s ? `+${r.s}` : ""}</span>
-                  <span className={cn("w-8 text-right", d > 0 ? "text-emerald-600" : d < 0 ? "text-red-500" : "text-slate-300")}>
-                    {d > 0 ? `+${d}` : d < 0 ? `${d}` : "="}
-                  </span>
-                </div>
-              );
-            })}
-          </div>
-          {cur.unmapped > 0 && (
-            <p className="mt-3 text-[11px] text-slate-400">
-              {cur.unmapped} sets from exercises not yet in the library — hit Sync to map them.
-            </p>
-          )}
-        </div>
+        </>
       )}
     </Card>
   );

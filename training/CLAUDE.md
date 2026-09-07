@@ -63,10 +63,14 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
 - **Overview tab** (`/training`, the old "Week" tab): stat cards, race feature card,
   this week's sessions with done/skip, Recovery, then (2026-09-07, replacing the
   "Recent workouts" list) three cards: **Run km** and **Weight lifted** — weekly
-  totals over the last 8 weeks as single-series line charts with the current week
-  emphasised and a Δ vs last week; and **Sets per muscle group** — this week's
-  working sets per Hevy muscle group (primary counted in full, secondary shown as
-  a lighter bar segment / "+n"), with Δ vs last week. Muscle groups come from
+  totals over the last 8 COMPLETED weeks as single-series line charts (hover/touch
+  → crosshair + tooltip); the headline is LAST week's total with "this week so
+  far" as a small note (Jared: a Monday reading "0 km" is discouraging), Δ vs the
+  week before; and **Set count per muscle** — Hevy-style: weekly buckets over a
+  4/8/12-week range, one line per muscle group, fixed colour per muscle, legend
+  rows toggle lines (top 6 shown by default) and list period totals. Counting
+  follows Hevy: a working set = 1 for the primary muscle, ½ for each secondary
+  (hence 27.5-style totals). Muscle groups come from
   **`tr_hevy_exercises`** (0011): tr-sync stores each exercise's `template_id` and
   refetches Hevy's full exercise library (`/v1/exercise_templates`, 5 pages × 100)
   only when it meets an id it hasn't cached. Exercises synced before 0011 have no
