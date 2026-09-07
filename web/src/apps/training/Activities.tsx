@@ -8,7 +8,7 @@ import { useState } from "react";
 import { CalendarRange, RefreshCw, Pencil } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, EmptyState, Modal, cn } from "../../components/ui";
-import { type TrWorkout, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
+import { type TrWorkout, type TrWellness, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
 
 const WEEKS_SHOWN = 6;
 
@@ -112,6 +112,17 @@ export default function Activities() {
       return dedupeGymShadows(data as TrWorkout[]);
     },
   });
+  // Garmin's daily wellness (via intervals.icu) for the same range — one strip
+  // per day at the top of each cell: sleep score + time, RHR, HRV, steps.
+  const { data: wellness } = useQuery({
+    queryKey: ["tr-activities-wellness"],
+    queryFn: async () => {
+      const oldest = addDaysISO(mondayOf(), -7 * (WEEKS_SHOWN - 1));
+      const { data, error } = await supabase.from("tr_wellness").select("*").gte("day", oldest);
+      if (error) throw error;
+      return new Map((data as TrWellness[]).map((r) => [r.day, r]));
+    },
+  });
 
   // Manual "pull everything now". tr-sync fetches intervals.icu (runs + wellness)
   // AND Hevy (lifts) in one call and reconciles deletions, so one button covers
@@ -125,6 +136,7 @@ export default function Activities() {
     },
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: ["tr-activities"] });
+      qc.invalidateQueries({ queryKey: ["tr-activities-wellness"] });
       qc.invalidateQueries({ queryKey: ["tr-week"] }); // the Week tab reads the same rows
     },
   });
@@ -179,6 +191,7 @@ export default function Activities() {
           workouts={weekWorkouts(start)}
           prevWorkouts={i < WEEKS_SHOWN - 1 ? weekWorkouts(addDaysISO(start, -7)) : null}
           byDay={byDay}
+          wellness={wellness}
           customOnly={customOnly}
         />
       ))}
@@ -187,9 +200,10 @@ export default function Activities() {
 }
 
 /* ---------------- one week: summary rail + 7-day grid ---------------- */
-function WeekRow({ weekStart, isCurrent, workouts, prevWorkouts, byDay, customOnly }: {
+function WeekRow({ weekStart, isCurrent, workouts, prevWorkouts, byDay, wellness, customOnly }: {
   weekStart: string; isCurrent: boolean; workouts: TrWorkout[];
-  prevWorkouts: TrWorkout[] | null; byDay: Map<string, TrWorkout[]>; customOnly: boolean;
+  prevWorkouts: TrWorkout[] | null; byDay: Map<string, TrWorkout[]>;
+  wellness: Map<string, TrWellness> | undefined; customOnly: boolean;
 }) {
   return (
     <Card className="overflow-hidden">
@@ -208,6 +222,7 @@ function WeekRow({ weekStart, isCurrent, workouts, prevWorkouts, byDay, customOn
                     {dayLabel(day)}
                   </p>
                   <div className="space-y-2">
+                    {wellness?.get(day) && <DayWellness r={wellness.get(day)!} />}
                     {todays.map((w) => <ActivityCard key={w.id} w={w} customOnly={customOnly} />)}
                   </div>
                 </div>
@@ -323,6 +338,31 @@ function WeekSummary({ weekStart, isCurrent, workouts, prevWorkouts }: {
       {prev && workouts.length > 0 && (
         <p className="mt-auto pt-4 text-[10px] text-slate-400">vs week {isoWeekNo(addDaysISO(weekStart, -7))}</p>
       )}
+    </div>
+  );
+}
+
+/* ---------------- per-day wellness strip ---------------- */
+/* Garmin's overnight + daily numbers for the day (tr_wellness, one row/day).
+   Sits above the activities so recovery reads before load. Blank fields are
+   simply omitted — Garmin skips sleep on nights the watch wasn't worn. */
+const fmtSleep = (secs: number) => `${Math.floor(secs / 3600)}h${String(Math.round((secs % 3600) / 60)).padStart(2, "0")}m`;
+function DayWellness({ r }: { r: TrWellness }) {
+  const rows: [string, string][] = [];
+  if (r.sleep_score != null || r.sleep_secs != null)
+    rows.push(["Sleep", [r.sleep_score != null ? String(Math.round(Number(r.sleep_score))) : null,
+      r.sleep_secs != null ? fmtSleep(Number(r.sleep_secs)) : null].filter(Boolean).join(" · ")]);
+  if (r.resting_hr != null) rows.push(["RHR", `${Math.round(Number(r.resting_hr))} bpm`]);
+  if (r.hrv != null) rows.push(["HRV", `${Math.round(Number(r.hrv))} ms`]);
+  if (r.steps != null) rows.push(["Steps", Number(r.steps).toLocaleString()]);
+  if (!rows.length) return null;
+  return (
+    <div className="rounded-xl border border-dashed border-slate-200 px-2 py-1.5 font-mono text-[10px] leading-tight text-slate-500">
+      {rows.map(([k, v]) => (
+        <p key={k} className="flex justify-between gap-2">
+          <span>{k}</span><span className="font-semibold text-slate-700">{v}</span>
+        </p>
+      ))}
     </div>
   );
 }

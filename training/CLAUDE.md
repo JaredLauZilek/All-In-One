@@ -71,11 +71,14 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   prefers the columns and, when any zone version exists, never falls back to the
   intervals.icu model. Current baseline: 5 zones 146/154/163/172/191 effective
   2000-01-01 (estimated from LTHR 173 / max 191, pre-test).
-- **Daily wellness** (resting HR, HRV, sleep, weight) also comes from intervals.icu —
+- **Daily wellness** (resting HR, HRV, sleep, weight, **steps** — 0008, 2026-09-07;
+  vo2max kept in `data`) also comes from intervals.icu —
   Garmin pushes its wellness stream there, so recovery-aware planning works WITHOUT
   Apple Health after all (0003, `tr_wellness`, one row/day). tr-plan-week and the bot
   feed the last 14/7 days to Claude; the dashboard shows a Recovery card. Verified
-  live 2026-09-06: 33 days of RHR, 19 with HRV, 18 with sleep.
+  live 2026-09-06: 33 days of RHR, 19 with HRV, 18 with sleep. The Activities
+  tab shows a dashed **wellness strip at the top of every day cell** (Sleep
+  score · time, RHR, HRV, Steps) — recovery reads before load.
 - **A Telegram bot** is the mid-week interface: /today /week /sync commands plus
   Claude-powered chat that can skip/move/update/add sessions (and mirrors those
   changes into Google Calendar). The dashboard is the once-a-week review tool.
@@ -174,7 +177,8 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
   tr-plan-week `verify_jwt: true`; **tr-telegram-webhook `verify_jwt: false`**);
   `supabase/functions/` here is the source mirror.
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
-  2026-09-05; 0007 `custom_name` applied 2026-09-07). Next migration: `0008_`.
+  2026-09-05; 0007 `custom_name` + 0008 `tr_wellness.steps` applied 2026-09-07).
+  Next migration: `0009_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).
 
 ## Gotchas

@@ -34,6 +34,7 @@ export interface TrWorkout {
 export interface TrWellness {
   day: string; resting_hr: number | null; hrv: number | null;
   sleep_secs: number | null; sleep_score: number | null; weight_kg: number | null;
+  steps: number | null; // Garmin daily total (0008)
 }
 
 export interface TrSettings {
