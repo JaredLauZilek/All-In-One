@@ -264,7 +264,10 @@ function ZonesCard() {
           {values.map((v, i) => (
             <label key={i} className="block">
               <span className="mb-1 block text-center text-[11px] font-medium text-slate-500">
-                Z{i + 1}{i === values.length - 1 ? " (max)" : " ≤"}
+                {/* Top zone has no upper ceiling — it's everything above the previous
+                    zone's value, so show it as "> prev" instead of "≤". The box itself
+                    still holds max HR (see helper text). */}
+                {i === values.length - 1 ? `Z${i + 1} > ${values[i - 1] || "…"}` : `Z${i + 1} ≤`}
               </span>
               <Input
                 inputMode="numeric"
@@ -298,9 +301,10 @@ function ZonesCard() {
           <Button onClick={submit} loading={add.isPending}>Add zone set</Button>
         </div>
         <p className="mt-3 text-[11px] leading-relaxed text-slate-400">
-          Ceilings in bpm — Z1 runs up to the first value, each next zone to its ceiling, the last
-          value is max HR. Activities on/after the date use the new set; everything earlier keeps
-          its old zones. Re-bucketing happens automatically from raw heart-rate streams.
+          Ceilings in bpm — Z1 runs up to the first value, each next zone to its ceiling. The top
+          zone is everything above the previous ceiling, and its box is your max HR. Activities
+          on/after the date use the new set; everything earlier keeps its old zones. Re-bucketing
+          happens automatically from raw heart-rate streams.
         </p>
         {msg && (
           <p className={cn("mt-2 rounded-lg px-3 py-2 text-xs",
