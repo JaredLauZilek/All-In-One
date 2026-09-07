@@ -44,7 +44,15 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   empty input clears the rename. **Clicking a lift card opens a set-by-set popup**
   (`LiftDetail`: tiles for time / working sets / reps / volume, then per exercise a
   table of weight × reps with W/D/F tags for warm-up / drop / failure sets and BW for
-  bodyweight). Gym bucket =
+  bodyweight). **Clicking a run (any intervals.icu activity) opens a run popup**
+  (`RunDetail`, 2026-09-07): tiles for time / distance / avg pace / avg HR, a
+  heart-rate line chart and a pace line chart (inverted, faster = higher; 2–98
+  percentile range so GPS spikes don't flatten it; crosshair + tooltip; ONE
+  measure per chart, never dual-axis), **time in HR zones from the dated-version
+  columns** (`hr_zone_secs`/`hr_zones` — never intervals.icu's model, so a zone
+  change after a re-test leaves old runs untouched), and the device laps. Streams
+  + laps come from **`tr-activity`** (see Architecture) — cached per workout in
+  `tr_workouts.detail` (0009) on first open. Gym bucket =
   strength + 'other' (Garmin
   logs Jared's gym sessions as generic "Workout"). Since Hevy is the lift source
   (2026-09-07) a Garmin gym-bucket entry whose recording window overlaps a Hevy
@@ -95,13 +103,16 @@ web /training ──┬─ tables (owner RLS): tr_races, tr_plan_weeks, tr_plann
                 │                      tr_workouts, tr_settings, tr_chat_log
                 ├─ tr-connect     status / Strava OAuth code exchange / disconnect
                 ├─ tr-sync        Strava + Hevy → tr_workouts → match → mark done
+                ├─ tr-activity    { id } → one run's downsampled HR/pace streams + device
+                │                 laps from intervals.icu, cached in tr_workouts.detail
+                │                 (≤600 points; { refresh: true } refetches)
                 └─ tr-plan-week   rules → (Claude) → sessions + Google Calendar
 Telegram ───────── tr-telegram-webhook  (verify_jwt FALSE, secret-header guarded)
 ```
 
 - **`tr_tokens`** (Strava OAuth tokens) has RLS ON with **no policies** — the browser
   can never read it; only edge functions (service role) touch it. Keep it that way.
-- `tr-connect`, `tr-sync`, `tr-plan-week` are `verify_jwt: true`. tr-sync/tr-plan-week
+- `tr-connect`, `tr-sync`, `tr-plan-week`, `tr-activity` are `verify_jwt: true`. tr-sync/tr-plan-week/tr-activity
   also accept the project **anon JWT** (valid JWT, no user) — they then fall back to
   the sole `tr_settings` row's owner. That's how the Telegram webhook triggers /sync.
 - `tr-telegram-webhook` is `verify_jwt: false`; security = the
@@ -174,11 +185,11 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
 ## Deploying
 
 - Edge functions: Supabase MCP `deploy_edge_function` (tr-connect / tr-sync /
-  tr-plan-week `verify_jwt: true`; **tr-telegram-webhook `verify_jwt: false`**);
+  tr-plan-week / tr-activity `verify_jwt: true`; **tr-telegram-webhook `verify_jwt: false`**);
   `supabase/functions/` here is the source mirror.
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
-  2026-09-05; 0007 `custom_name` + 0008 `tr_wellness.steps` applied 2026-09-07).
-  Next migration: `0009_`.
+  2026-09-05; 0007 `custom_name`, 0008 `tr_wellness.steps`, 0009 `tr_workouts.detail`
+  applied 2026-09-07). Next migration: `0010_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).
 
 ## Gotchas

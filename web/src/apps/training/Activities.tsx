@@ -367,6 +367,204 @@ function DayWellness({ r }: { r: TrWellness }) {
   );
 }
 
+/* ---------------- run detail popup ---------------- */
+/* Streams + laps come from tr-activity (intervals.icu, downsampled, cached in
+   tr_workouts.detail). HR-zone time does NOT: it's hr_zone_secs / hr_zones —
+   Jared's dated zone versions bucketed by tr-sync — so a zone change after a
+   re-test never rewrites old runs, and intervals.icu's model is never used. */
+interface RunPoint { t: number; hr: number | null; pace: number | null; d: number | null }
+interface RunLap { n: number; type: string | null; start: number; secs: number; m: number; avg_hr: number | null; max_hr: number | null; pace: number | null }
+interface RunDetailData { points: RunPoint[]; laps: RunLap[]; fetched_at: string; error?: string }
+
+const fmtSecPace = (s: number) => `${Math.floor(s / 60)}:${String(Math.round(s % 60)).padStart(2, "0")}`;
+const fmtClock = (s: number) => {
+  const r = Math.round(s), h = Math.floor(r / 3600), m = Math.floor((r % 3600) / 60), sec = r % 60;
+  return h ? `${h}:${String(m).padStart(2, "0")}:${String(sec).padStart(2, "0")}` : `${m}:${String(sec).padStart(2, "0")}`;
+};
+
+/* One measure per chart (never a dual axis). 2px line, gaps where the stream
+   has no value, recessive grid, crosshair + tooltip on hover. Pace is drawn
+   inverted (faster = higher) like intervals.icu, with a 2–98 percentile range so
+   one GPS spike can't flatten the whole line. */
+function StreamChart({ points, field, invert, lineClass, dotClass, fmt, unit, title }: {
+  points: RunPoint[]; field: "hr" | "pace"; invert?: boolean; lineClass: string; dotClass: string;
+  fmt: (v: number) => string; unit: string; title: string;
+}) {
+  const [hover, setHover] = useState<number | null>(null);
+  const defined = points.map((p) => p[field]).filter((v): v is number => v != null);
+  if (defined.length < 2) return <p className="text-xs text-slate-400">{title}: no data in this recording.</p>;
+  const sorted = [...defined].sort((a, b) => a - b);
+  const q = (f: number) => sorted[Math.floor((sorted.length - 1) * f)];
+  let lo = invert ? q(0.02) : sorted[0], hi = invert ? q(0.98) : sorted[sorted.length - 1];
+  const pad = (hi - lo) * 0.08 || 1; lo -= pad; hi += pad;
+  const W = 600, H = 150, L = 40, R = 10, T = 10, B = 20;
+  const tMax = points[points.length - 1].t || 1;
+  const x = (t: number) => L + (t / tMax) * (W - L - R);
+  const y = (v: number) => {
+    const c = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+    return invert ? T + c * (H - T - B) : H - B - c * (H - T - B);
+  };
+  let d = ""; let pen = false;
+  for (const p of points) {
+    const v = p[field];
+    if (v == null) { pen = false; continue; }
+    d += `${pen ? "L" : "M"}${x(p.t).toFixed(1)},${y(v).toFixed(1)}`; pen = true;
+  }
+  const yTicks = [lo + pad, (lo + hi) / 2, hi - pad];
+  const stepMin = tMax > 5400 ? 15 : tMax > 2400 ? 10 : 5;
+  const xTicks: number[] = []; for (let t = stepMin * 60; t < tMax; t += stepMin * 60) xTicks.push(t);
+  const onMove = (e: React.MouseEvent<SVGSVGElement>) => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const t = ((e.clientX - rect.left) / rect.width * W - L) / (W - L - R) * tMax;
+    let best = 0, bd = Infinity;
+    points.forEach((p, i) => { const dd = Math.abs(p.t - t); if (dd < bd) { bd = dd; best = i; } });
+    setHover(best);
+  };
+  const hp = hover != null ? points[hover] : null;
+  const hv = hp ? hp[field] : null;
+  return (
+    <div>
+      <p className="mb-1 text-xs font-semibold text-slate-700">{title}</p>
+      <div className="relative">
+        <svg viewBox={`0 0 ${W} ${H}`} className="h-auto w-full touch-none select-none" onMouseMove={onMove} onMouseLeave={() => setHover(null)}>
+          {yTicks.map((v, i) => (
+            <g key={i}>
+              <line x1={L} x2={W - R} y1={y(v)} y2={y(v)} className="stroke-slate-200" strokeWidth={1} />
+              <text x={L - 6} y={y(v) + 3} textAnchor="end" className="fill-slate-400 font-mono" fontSize={9}>{fmt(v)}</text>
+            </g>
+          ))}
+          {xTicks.map((t) => (
+            <text key={t} x={x(t)} y={H - 6} textAnchor="middle" className="fill-slate-400 font-mono" fontSize={9}>{t / 60}m</text>
+          ))}
+          <path d={d} fill="none" strokeWidth={2} strokeLinejoin="round" strokeLinecap="round" className={lineClass} />
+          {hp && hv != null && (
+            <g>
+              <line x1={x(hp.t)} x2={x(hp.t)} y1={T} y2={H - B} className="stroke-slate-300" strokeWidth={1} />
+              <circle cx={x(hp.t)} cy={y(hv)} r={4} className={cn(dotClass, "stroke-surface")} strokeWidth={2} />
+            </g>
+          )}
+        </svg>
+        {hp && hv != null && (
+          <div
+            className="pointer-events-none absolute top-0 -translate-x-1/2 rounded-lg bg-ink px-2 py-1 font-mono text-[10px] text-white shadow-sm"
+            style={{ left: `${(x(hp.t) / W) * 100}%` }}
+          >
+            {fmt(hv)} {unit} · {fmtClock(hp.t)}{hp.d != null ? ` · ${(hp.d / 1000).toFixed(2)} km` : ""}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/* Time in each of Jared's zones for this run — from the dated-version columns. */
+function ZoneTimes({ w }: { w: TrWorkout }) {
+  const secs = Array.isArray(w.hr_zone_secs) ? w.hr_zone_secs : null;
+  const ceilings = Array.isArray(w.hr_zones) ? w.hr_zones : null;
+  if (!secs || !ceilings || secs.length !== ceilings.length) {
+    return <p className="text-xs text-slate-400">No zone breakdown yet for this run — hit Sync and it will be bucketed against your zones.</p>;
+  }
+  const total = secs.reduce((a, b) => a + b, 0) || 1;
+  const max = Math.max(...secs) || 1;
+  return (
+    <div className="space-y-1">
+      {secs.map((sec, i) => {
+        const range = i === 0 ? `≤ ${ceilings[0]}` : i === secs.length - 1 ? `> ${ceilings[i - 1]}` : `${ceilings[i - 1] + 1}–${ceilings[i]}`;
+        return (
+          <div key={i} className="flex items-center gap-2 font-mono text-[11px]">
+            <span className="w-7 font-semibold text-slate-700">Z{i + 1}</span>
+            <span className="w-20 text-slate-400">{range}</span>
+            <div className="h-3 flex-1 overflow-hidden rounded-full bg-slate-100">
+              <div className={cn("h-full rounded-full", zoneColor(i, secs.length))} style={{ width: `${(sec / max) * 100}%` }} />
+            </div>
+            <span className="w-12 text-right text-slate-700">{fmtClock(sec)}</span>
+            <span className="w-9 text-right text-slate-400">{Math.round((sec / total) * 100)}%</span>
+          </div>
+        );
+      })}
+      {w.hr_zones_key && <p className="pt-1 text-[10px] text-slate-400">Zones in force from {w.hr_zones_key.split(":")[0]}</p>}
+    </div>
+  );
+}
+
+function RunDetail({ w, onClose }: { w: TrWorkout; onClose: () => void }) {
+  const detail = useQuery({
+    queryKey: ["tr-run-detail", w.id],
+    staleTime: Infinity,
+    queryFn: async () => {
+      const { data, error } = await supabase.functions.invoke("tr-activity", { body: { id: w.id } });
+      if (error) throw error;
+      const res = data as RunDetailData;
+      if (res.error) throw new Error(res.error);
+      return res;
+    },
+  });
+  const pace = w.distance_km && w.duration_min ? Number(w.duration_min) / Number(w.distance_km) : null;
+  const Tile = ({ label, value }: { label: string; value: string }) => (
+    <div className="rounded-2xl bg-slate-50 px-3 py-2.5">
+      <p className="text-[10px] font-medium uppercase tracking-wide text-slate-400">{label}</p>
+      <p className="font-mono text-base font-bold text-slate-900">{value}</p>
+    </div>
+  );
+  const laps = (detail.data?.laps ?? []).filter((l) => l.m >= 50 || l.secs >= 30); // drop the 2-second stop-button lap
+  return (
+    <Modal open onClose={onClose} title={`${w.custom_name ?? w.name ?? "Run"} · ${dayLabel(workoutDay(w))} · ${startClock(w.started_at)}`} wide>
+      <div className="space-y-5">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+          <Tile label="Time" value={w.duration_min ? fmtDur(Number(w.duration_min)) : "—"} />
+          <Tile label="Distance" value={w.distance_km ? `${Number(w.distance_km).toFixed(2)} km` : "—"} />
+          <Tile label="Avg Pace" value={pace ? `${fmtPace(pace)} /km` : "—"} />
+          <Tile label="Avg HR" value={w.avg_hr ? `${Math.round(Number(w.avg_hr))} bpm` : "—"} />
+        </div>
+
+        {detail.isPending && <p className="text-xs text-slate-400">Loading streams from intervals.icu…</p>}
+        {detail.isError && <p className="text-xs text-red-500">{String(detail.error)}</p>}
+        {detail.data && (
+          <>
+            <StreamChart points={detail.data.points} field="hr" title="Heart rate" unit="bpm"
+              lineClass="stroke-red-500" dotClass="fill-red-500" fmt={(v) => String(Math.round(v))} />
+            <StreamChart points={detail.data.points} field="pace" invert title="Pace" unit="/km"
+              lineClass="stroke-sky-500" dotClass="fill-sky-500" fmt={fmtSecPace} />
+          </>
+        )}
+
+        <div>
+          <p className="mb-1.5 text-xs font-semibold text-slate-700">Time in HR zones</p>
+          <ZoneTimes w={w} />
+        </div>
+
+        {laps.length > 0 && (
+          <div>
+            <p className="mb-1.5 text-xs font-semibold text-slate-700">Laps</p>
+            <table className="w-full font-mono text-xs">
+              <thead>
+                <tr className="text-[10px] uppercase tracking-wide text-slate-400">
+                  <th className="w-10 py-1 text-left font-medium">Lap</th>
+                  <th className="py-1 text-right font-medium">Time</th>
+                  <th className="py-1 text-right font-medium">Distance</th>
+                  <th className="py-1 text-right font-medium">Avg Pace</th>
+                  <th className="py-1 text-right font-medium">Avg HR</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-100">
+                {laps.map((l) => (
+                  <tr key={l.n} className={cn(l.type === "RECOVERY" && "text-slate-400")}>
+                    <td className="py-1 text-left">{l.n}</td>
+                    <td className="py-1 text-right">{fmtClock(l.secs)}</td>
+                    <td className="py-1 text-right">{(l.m / 1000).toFixed(2)} km</td>
+                    <td className="py-1 text-right">{l.pace ? `${fmtSecPace(l.pace)} /km` : "—"}</td>
+                    <td className="py-1 text-right">{l.avg_hr != null ? Math.round(Number(l.avg_hr)) : "—"}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+    </Modal>
+  );
+}
+
 /* ---------------- lift detail popup ---------------- */
 const SET_TYPE_TAG: Record<string, string> = { warmup: "W", dropset: "D", failure: "F" };
 const fmtKg = (kg: number) => kg.toLocaleString(undefined, { maximumFractionDigits: kg < 100 ? 1 : 0 });
@@ -463,6 +661,8 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
   const [draft, setDraft] = useState("");
   const [detail, setDetail] = useState(false);
   const hasLiftDetail = Array.isArray(d.exercises) && d.exercises.length > 0;
+  const hasRunDetail = w.source === "intervals"; // streams + laps live on intervals.icu
+  const hasDetail = hasLiftDetail || hasRunDetail;
   const shown = w.custom_name ?? w.name ?? w.sport;
   const rename = useMutation({
     mutationFn: async (value: string) => {
@@ -505,12 +705,14 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
     {/* Rendered OUTSIDE the card element: React click events bubble up the
         component tree, so a close click inside the popup would otherwise reach
         the card's onClick and reopen it. */}
-    {detail && <LiftDetail w={w} onClose={() => setDetail(false)} />}
+    {detail && (hasLiftDetail
+      ? <LiftDetail w={w} onClose={() => setDetail(false)} />
+      : <RunDetail w={w} onClose={() => setDetail(false)} />)}
     <div
       className={cn("group relative rounded-xl bg-slate-50 p-2 text-[11px] leading-tight dark:bg-slate-100",
-        hasLiftDetail && "cursor-pointer transition hover:bg-slate-100 dark:hover:bg-slate-200")}
-      onClick={hasLiftDetail && !editing ? () => setDetail(true) : undefined}
-      title={hasLiftDetail ? "Click for set-by-set detail" : undefined}
+        hasDetail && "cursor-pointer transition hover:bg-slate-100 dark:hover:bg-slate-200")}
+      onClick={hasDetail && !editing ? () => setDetail(true) : undefined}
+      title={hasLiftDetail ? "Click for set-by-set detail" : hasRunDetail ? "Click for HR / pace / laps" : undefined}
     >
       {!editing && (
         <button
