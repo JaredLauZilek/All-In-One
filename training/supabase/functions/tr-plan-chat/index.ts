@@ -110,7 +110,7 @@ Deno.serve(async (req) => {
 
     const system = `You are Jared's training planner, living inside the week editor of his app (Hyrox + endurance racing). He is looking at the week ${weekStart} → ${weekEnd} (today is ${today}, MYT). He tells you the week he wants — in his own words, for this week or next — and you turn it into concrete sessions. Be a concise, direct coach; plain text, no markdown.
 
-WHAT YOU RETURN: ONLY JSON {"reply": string, "actions": Action[]}. Actions are PROPOSALS — nothing is applied until Jared taps Apply — so write the reply as a proposal ("Here's the week I'd set up — Apply if it fits"), never as done. Action = {"op":"set_status","id":uuid,"status":"skipped|done|planned"} | {"op":"move","id":uuid,"date":"YYYY-MM-DD"} | {"op":"update","id":uuid,"title"?,"detail"?,"planned_minutes"?,"planned_km"?,"sport"?} | {"op":"add_session","session_date":"YYYY-MM-DD","sport":"run|ride|swim|strength|hyrox|brick|mobility|rest|other","title","detail"?,"planned_minutes"?,"planned_km"?} | {"op":"delete","id":uuid}. Dates must be inside the viewed week. Use ONLY ids from context.sessions — never invent one. Prefer UPDATING an existing session over delete+add. Max 20 actions. If his request is ambiguous, ask ONE question and return no actions.
+WHAT YOU RETURN: ONLY JSON {"reply": string, "actions": Action[]}. Actions are PROPOSALS — nothing is applied until Jared taps Apply — so write the reply as a proposal ("Here's the week I'd set up — Apply if it fits"), never as done. KEEP THE REPLY SHORT (2–4 sentences: the shape of the week + anything you had to assume); the sessions themselves go in the actions, not the reply. Every string must be valid JSON (escape newlines as \\n). Action = {"op":"set_status","id":uuid,"status":"skipped|done|planned"} | {"op":"move","id":uuid,"date":"YYYY-MM-DD"} | {"op":"update","id":uuid,"title"?,"detail"?,"planned_minutes"?,"planned_km"?,"sport"?} | {"op":"add_session","session_date":"YYYY-MM-DD","sport":"run|ride|swim|strength|hyrox|brick|mobility|rest|other","title","detail"?,"planned_minutes"?,"planned_km"?} | {"op":"delete","id":uuid}. Dates must be inside the viewed week. Use ONLY ids from context.sessions — never invent one. Prefer UPDATING an existing session over delete+add. Max 20 actions. If his request is ambiguous, ask ONE question and return no actions.
 
 JARED'S RULES (apply unless he says otherwise):
 - Lifts progress on a rep ladder at the SAME weight: 8 → 10 → 12 reps; once every working set hits 12, weight +5% (round to 2.5 kg ≥30 kg, else 1 kg) back to 8. "Achieved" = the LOWEST reps across working sets; a missed rung repeats. Compute from context.reference_lifts (most recent session of that split) and write the exercise list in detail, one per line: "Bench Press (Barbell): 3 × 8 @ 70 kg". Title strength sessions "<Split> (Hevy)".
@@ -123,7 +123,7 @@ JARED'S RULES (apply unless he says otherwise):
       headers: { "x-api-key": key, "anthropic-version": "2023-06-01", "Content-Type": "application/json" },
       body: JSON.stringify({
         model: Deno.env.get("ANTHROPIC_MODEL") ?? "claude-sonnet-5",
-        max_tokens: 6000,
+        max_tokens: 16000,
         system,
         messages: [
           ...history,
@@ -142,8 +142,17 @@ JARED'S RULES (apply unless he says otherwise):
     const data = await r.json();
     const text = ((data.content ?? []) as { type: string; text?: string }[]).filter((b) => b.type === "text").map((b) => b.text ?? "").join("");
     let parsed: { reply?: string; actions?: Action[] };
-    try { parsed = JSON.parse(text.replace(/^```json?\s*|```\s*$/g, "")); }
-    catch { return json({ reply: text || "I glitched — try again.", actions: [], lines: [] }); }
+    const cleaned = text.replace(/^```json?\s*|```\s*$/g, "").trim();
+    try { parsed = JSON.parse(cleaned); }
+    catch {
+      // tolerate chatter around the object
+      const m = cleaned.match(/\{[\s\S]*\}/);
+      try { parsed = JSON.parse(m ? m[0] : ""); }
+      catch {
+        const why = data.stop_reason === "max_tokens" ? "the answer ran too long — ask for a smaller change or one day at a time" : "I couldn't format the proposal — try rephrasing";
+        return json({ reply: `Sorry, ${why}.`, actions: [], lines: [], debug: { stop_reason: data.stop_reason, raw_len: text.length } });
+      }
+    }
     const { valid, lines } = describe(parsed.actions ?? [], (sessions ?? []) as Sess[], weekStart, weekEnd);
     return json({ reply: parsed.reply ?? "Here's what I'd do.", actions: valid, lines });
   } catch (e) {
