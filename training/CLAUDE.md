@@ -222,6 +222,10 @@ Telegram ───────── tr-telegram-webhook  (verify_jwt FALSE, sec
   - Claude's system prompt marks "(Hevy)" strength sessions and the long run as
     HARD RULES to return unchanged. `dry_run: true` returns the computed week +
     `progression` without writing or touching the calendar (used for testing).
+- **No auto-planning** (Jared, 2026-09-16): the "Plan next week" / "Regenerate this
+  week" buttons were removed from the popup. `tr-plan-week` stays deployed (the rule
+  engine + Claude pass + `dry_run`) but nothing in the UI calls it any more; the week
+  is planned semi-manually every week — the AI chat below proposes, Jared applies.
 - **"Plan with AI" chat in the week popup** (2026-09-16, `PlanChat` → `tr-plan-chat`):
   Jared spells out the week he wants (this week or next — whichever is viewed);
   Claude gets the viewed week's sessions (with ids), races, settings, the last 3

@@ -3,12 +3,13 @@
 // weekly run-km and weight-lifted line charts (last 8 weeks), sets per muscle
 // group (Hevy exercise library), and the volume progression across plan weeks.
 //
-// The once-a-week ritual: Sync now → review the week → Generate next week
+// The once-a-week ritual: Sync now → review the week → plan next week with the
+// AI chat in the popup (no auto-planning — Jared's choice 2026-09-16)
 // (rule engine + Claude in the tr-plan-week edge fn, pushed to Google
 // Calendar when configured). Mid-week changes happen through the Telegram bot.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Sparkles, Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX, ChevronLeft, ChevronRight, MessageSquare, Send } from "lucide-react";
+import { RefreshCw, Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX, ChevronLeft, ChevronRight, MessageSquare, Send } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, StatusBadge, Modal, Input, Select, Textarea, cn } from "../../components/ui";
 import {
@@ -99,18 +100,6 @@ export default function Dashboard() {
     onSuccess: invalidate,
   });
 
-  const generate = useMutation({
-    mutationFn: async (target: string) => {
-      const { data: res, error } = await supabase.functions.invoke("tr-plan-week", {
-        body: { week_start: target },
-      });
-      if (error) throw error;
-      if ((res as { error?: string })?.error) throw new Error((res as { error: string }).error);
-      return { ...(res as { calendar_pushed: number; generated_by: string; progression?: Record<string, unknown> }), target };
-    },
-    onSuccess: (res) => { invalidate(); setViewWeek(res.target); },
-  });
-
   const sessions = data?.sessions ?? [];
   const done = sessions.filter((s) => s.status === "done").length;
   const nonRest = sessions.filter((s) => s.sport !== "rest");
@@ -157,9 +146,7 @@ export default function Dashboard() {
           onPrev={() => setViewWeek(addDaysISO(viewWeek, -7))} onNext={() => setViewWeek(addDaysISO(viewWeek, 7))}
           onClose={() => setPlanOpen(false)} onChanged={invalidate}
           onSync={() => sync.mutate()} syncing={sync.isPending}
-          onGenerate={(target) => generate.mutate(target)} generating={generate.isPending}
-          generateResult={generate.isSuccess ? generate.data : null}
-          error={generate.isError ? String(generate.error) : null} />
+          />
       )}
     </div>
   );
@@ -223,7 +210,7 @@ function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOp
     <Card className="cursor-pointer transition hover:border-slate-300">
       <div onClick={onOpen}>
         <CardHeader title={`Week of ${weekStart}`}
-          subtitle={week ? `${BLOCK_LABELS[week.block] ?? week.block} · ${week.generated_by}${week.focus ? ` · ${week.focus}` : ""}` : "No plan for this week yet — open to generate it"}
+          subtitle={week ? `${BLOCK_LABELS[week.block] ?? week.block} · ${week.generated_by}${week.focus ? ` · ${week.focus}` : ""}` : "No plan for this week yet — open and plan it with AI"}
           action={
             <div className="flex items-center gap-2">
               <WeekNav weekStart={weekStart} currentWeek={currentWeek} onPrev={onPrev} onNext={onNext} />
@@ -270,21 +257,11 @@ function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOp
 
 /* The popup: structure and design this week. Every change is one tr-plan-edit
    action (same write path as the bot → Google Calendar stays in sync). */
-function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext, onClose, onChanged, onSync, syncing, onGenerate, generating, generateResult, error }: {
+function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext, onClose, onChanged, onSync, syncing }: {
   weekStart: string; currentWeek: string; week: TrPlanWeek | null; sessions: TrSession[];
   onPrev: () => void; onNext: () => void; onClose: () => void; onChanged: () => void;
-  onSync: () => void; syncing: boolean; onGenerate: (target: string) => void; generating: boolean;
-  generateResult: { target: string; calendar_pushed: number; generated_by: string; progression?: Record<string, unknown> } | null;
-  error: string | null;
+  onSync: () => void; syncing: boolean;
 }) {
-  const isCurrent = weekStart === currentWeek;
-  const nextWeek = addDaysISO(currentWeek, 7);
-  // Generate/regenerate acts on the week being VIEWED. Regenerating replaces
-  // sessions still marked planned (edits are lost) — so it asks first.
-  const generateViewed = () => {
-    if (week && !confirm(`Regenerate the week of ${weekStart}? Sessions still marked planned are replaced (done/skipped stay).`)) return;
-    onGenerate(weekStart);
-  };
   const [editing, setEditing] = useState<string | null>(null); // session id being edited, "new:<date>" for a draft
   const edit = useMutation({ mutationFn: planEdit, onSuccess: () => { onChanged(); setEditing(null); } });
   // Week-level calendar controls: push = create missing + UPDATE existing events
@@ -299,7 +276,7 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
       <div className="space-y-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
           <WeekNav weekStart={weekStart} currentWeek={currentWeek} onPrev={onPrev} onNext={onNext} />
-          <p className="min-w-0 flex-1 text-xs text-slate-500">{week?.focus ?? "No plan generated for this week yet."}</p>
+          <p className="min-w-0 flex-1 text-xs text-slate-500">{week?.focus ?? "Nothing planned yet — describe the week below or add sessions by hand."}</p>
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           <div className="flex flex-wrap gap-2">
@@ -315,33 +292,16 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
                 <CalendarX className="h-4 w-4" /> Clear
               </Button>
             )}
-            {isCurrent && (
-              <Button onClick={() => onGenerate(nextWeek)} loading={generating} title={`Generate the week of ${nextWeek} from this week's actuals and show it`}>
-                <Sparkles className="h-4 w-4" /> Plan next week
-              </Button>
-            )}
-            <Button variant={isCurrent ? "secondary" : "primary"} onClick={generateViewed} loading={generating}>
-              <Sparkles className="h-4 w-4" /> {week ? "Regenerate this week" : "Generate this week"}
-            </Button>
           </div>
         </div>
-        {generateResult && (
-          <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-            Generated week of {generateResult.target} ({generateResult.generated_by})
-            {generateResult.progression && "lifts" in generateResult.progression ? ` · lifts progressed from your last sessions` : ""}
-            {generateResult.progression && "long_run" in generateResult.progression ? ` · long run progressed` : ""}
-            {" · "}<b>not on your calendar yet</b> — edit, then hit Push to Calendar
-            {generateResult.target !== weekStart ? ` — use ▶ to view it` : ""}
-          </p>
-        )}
         <p className="rounded-xl bg-slate-50 px-3 py-2 text-[11px] leading-relaxed text-slate-500">
-          <b className="text-slate-700">Progression guide</b> (applied when a week is generated, then edit freely):
+          <b className="text-slate-700">Progression guide</b> (the AI follows it when you plan below; edit anything freely):
           lifts repeat last week's weight on a rep ladder 8 → 10 → 12, then +5% weight back to 8, every set must hit the rung ·
-          easy long run +12 min per week, every 4th week shorter to absorb · tempo and intervals are a preliminary suggestion — design them here.
-          Generating never touches Google Calendar — "Push to Calendar" creates what's missing and updates the rest; after that, edits, done/skip and delete keep the events in step.
+          easy long run +12 min per week, every 4th week shorter to absorb · tempo and intervals are your call, the AI only suggests.
+          Nothing touches Google Calendar until "Push to Calendar"; after that, edits, done/skip and delete keep the events in step.
         </p>
         {calendar.isSuccess && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{calendar.data.applied.join(" · ")}</p>}
-        {(error || edit.isError || calendar.isError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error ?? String(edit.error ?? calendar.error)}</p>}
+        {(edit.isError || calendar.isError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{String(edit.error ?? calendar.error)}</p>}
 
         <PlanChat key={weekStart} weekStart={weekStart} onChanged={onChanged} />
 
@@ -396,7 +356,7 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
    resets when the viewed week changes (key={weekStart}). */
 interface ChatMsg { role: "user" | "assistant"; content: string; actions?: PlanAction[]; lines?: string[]; state?: "pending" | "applied" | "discarded" }
 function PlanChat({ weekStart, onChanged }: { weekStart: string; onChanged: () => void }) {
-  const [open, setOpen] = useState(false);
+  const [open, setOpen] = useState(true);
   const [msgs, setMsgs] = useState<ChatMsg[]>([]);
   const [text, setText] = useState("");
   const ask = useMutation({
