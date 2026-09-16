@@ -8,7 +8,7 @@
 // Calendar when configured). Mid-week changes happen through the Telegram bot.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Sparkles, Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX, ChevronLeft, ChevronRight } from "lucide-react";
+import { RefreshCw, Sparkles, Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX, ChevronLeft, ChevronRight, MessageSquare, Send } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, StatusBadge, Modal, Input, Select, Textarea, cn } from "../../components/ui";
 import {
@@ -343,6 +343,8 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
         {calendar.isSuccess && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{calendar.data.applied.join(" · ")}</p>}
         {(error || edit.isError || calendar.isError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error ?? String(edit.error ?? calendar.error)}</p>}
 
+        <PlanChat key={weekStart} weekStart={weekStart} onChanged={onChanged} />
+
         <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200/60">
           {days.map((d) => {
             const dt = new Date(d + "T00:00:00");
@@ -384,6 +386,82 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
         <p className="text-[10px] text-slate-400">📅 = on Google Calendar. The Telegram bot proposes changes to this same plan; nothing applies without your OK.</p>
       </div>
     </Modal>
+  );
+}
+
+/* ---------------- chat: spell out the week, get a proposal ---------------- */
+/* Jared describes the week he wants; tr-plan-chat returns a reply + validated
+   actions. Shown as a proposal with Apply / Discard — Apply goes through
+   tr-plan-edit like every other edit. History lives in component state and
+   resets when the viewed week changes (key={weekStart}). */
+interface ChatMsg { role: "user" | "assistant"; content: string; actions?: PlanAction[]; lines?: string[]; state?: "pending" | "applied" | "discarded" }
+function PlanChat({ weekStart, onChanged }: { weekStart: string; onChanged: () => void }) {
+  const [open, setOpen] = useState(false);
+  const [msgs, setMsgs] = useState<ChatMsg[]>([]);
+  const [text, setText] = useState("");
+  const ask = useMutation({
+    mutationFn: async (message: string) => {
+      const history = msgs.slice(-8).map((m) => ({ role: m.role, content: m.content }));
+      const { data, error } = await supabase.functions.invoke("tr-plan-chat", { body: { week_start: weekStart, message, history } });
+      if (error) throw error;
+      if ((data as { error?: string })?.error) throw new Error((data as { error: string }).error);
+      return data as { reply: string; actions: PlanAction[]; lines: string[] };
+    },
+    onSuccess: (res) => setMsgs((m) => [...m, { role: "assistant", content: res.reply, actions: res.actions, lines: res.lines, state: res.actions.length ? "pending" : undefined }]),
+  });
+  const apply = useMutation({
+    mutationFn: async (i: number) => { const r = await planEdit(msgs[i].actions ?? []); return { i, r }; },
+    onSuccess: ({ i }) => { setMsgs((m) => m.map((x, j) => (j === i ? { ...x, state: "applied" } : x))); onChanged(); },
+  });
+  const discard = (i: number) => setMsgs((m) => m.map((x, j) => (j === i ? { ...x, state: "discarded" } : x)));
+  const send = () => {
+    const t = text.trim(); if (!t || ask.isPending) return;
+    setMsgs((m) => [...m, { role: "user", content: t }]); setText(""); ask.mutate(t);
+  };
+  return (
+    <div className="rounded-2xl border border-slate-200/60">
+      <button type="button" onClick={() => setOpen((o) => !o)} className="flex w-full items-center justify-between px-4 py-2.5 text-left">
+        <span className="flex items-center gap-2 text-sm font-semibold text-slate-900"><MessageSquare className="h-4 w-4 text-indigo-600" /> Plan with AI</span>
+        <span className="text-[11px] text-slate-400">{open ? "hide" : "spell out the week you want — it proposes the sessions, you Apply"}</span>
+      </button>
+      {open && (
+        <div className="border-t border-slate-100 px-4 py-3">
+          <div className="max-h-80 space-y-2 overflow-y-auto">
+            {msgs.length === 0 && (
+              <p className="text-xs text-slate-400">
+                e.g. "Push Monday, Legs Wednesday, Pull Saturday with progression, tempo Thursday 6 km, long run Sunday" · "make this week lighter, I'm cooked" · "swap the interval run to Friday".
+              </p>
+            )}
+            {msgs.map((m, i) => (
+              <div key={i} className={cn("flex", m.role === "user" ? "justify-end" : "justify-start")}>
+                <div className={cn("max-w-[85%] rounded-2xl px-3 py-2 text-xs leading-relaxed", m.role === "user" ? "bg-ink text-white dark:bg-accent dark:text-ink" : "bg-slate-50 text-slate-700")}>
+                  <p className="whitespace-pre-line">{m.content}</p>
+                  {m.lines && m.lines.length > 0 && (
+                    <div className="mt-2 rounded-xl border border-slate-200/70 bg-surface p-2">
+                      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Proposed changes{m.state === "applied" ? " · applied ✓" : m.state === "discarded" ? " · discarded" : ""}</p>
+                      <ul className="space-y-0.5">{m.lines.map((l, k) => <li key={k} className="text-[11px] text-slate-700">• {l}</li>)}</ul>
+                      {m.state === "pending" && (
+                        <div className="mt-2 flex gap-2">
+                          <Button onClick={() => apply.mutate(i)} loading={apply.isPending}><Check className="h-3.5 w-3.5" /> Apply</Button>
+                          <Button variant="ghost" onClick={() => discard(i)}><X className="h-3.5 w-3.5" /> Discard</Button>
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ))}
+            {ask.isPending && <p className="text-[11px] text-slate-400">Thinking…</p>}
+            {(ask.isError || apply.isError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{String(ask.error ?? apply.error)}</p>}
+          </div>
+          <div className="mt-3 flex items-end gap-2">
+            <Textarea rows={2} value={text} onChange={(e) => setText(e.target.value)} placeholder="Describe the week you want…"
+              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); send(); } }} />
+            <Button onClick={send} loading={ask.isPending}><Send className="h-4 w-4" /> Send</Button>
+          </div>
+        </div>
+      )}
+    </div>
   );
 }
 

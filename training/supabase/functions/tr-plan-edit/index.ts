@@ -87,6 +87,16 @@ Deno.serve(async (req) => {
     const applied: string[] = [];
     const now = () => new Date().toISOString();
     const own = (id: string) => svc.from("tr_planned_sessions").select("*").eq("id", id).eq("user_id", userId).maybeSingle();
+    // A week that was never pushed is a DRAFT: adding / re-opening a session must
+    // not create the week's first calendar event (Jared, 2026-09-16 — only "Push
+    // to Calendar" does that). A pushed week keeps itself in step.
+    const weekPushed = async (date: string) => {
+      const d = new Date(date + "T00:00:00Z"); const mon = new Date(d.getTime() - ((d.getUTCDay() + 6) % 7) * 86400_000);
+      const monIso = mon.toISOString().slice(0, 10), sunIso = new Date(mon.getTime() + 6 * 86400_000).toISOString().slice(0, 10);
+      const { count } = await svc.from("tr_planned_sessions").select("id", { count: "exact", head: true })
+        .eq("user_id", userId).gte("session_date", monIso).lte("session_date", sunIso).not("gcal_event_id", "is", null);
+      return (count ?? 0) > 0;
+    };
 
     for (const a of actions) {
       try {
@@ -98,7 +108,7 @@ Deno.serve(async (req) => {
             if (a.status === "skipped" && s.gcal_event_id) {
               await gcalDelete(access, s.gcal_event_id);
               await svc.from("tr_planned_sessions").update({ gcal_event_id: null }).eq("id", s.id);
-            } else if (a.status === "planned" && !s.gcal_event_id) {
+            } else if (a.status === "planned" && !s.gcal_event_id && await weekPushed(s.session_date)) {
               const ev = await gcalInsert(access, s, time);
               if (ev) await svc.from("tr_planned_sessions").update({ gcal_event_id: ev }).eq("id", s.id);
             }
@@ -136,7 +146,7 @@ Deno.serve(async (req) => {
           };
           const { data: ins, error } = await svc.from("tr_planned_sessions").insert(row).select("id").single();
           if (error) throw new Error(error.message);
-          if (access && ins && a.sport !== "rest") {
+          if (access && ins && a.sport !== "rest" && await weekPushed(a.session_date)) {
             const ev = await gcalInsert(access, row, time);
             if (ev) await svc.from("tr_planned_sessions").update({ gcal_event_id: ev }).eq("id", ins.id);
           }
