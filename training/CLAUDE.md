@@ -145,6 +145,9 @@ web /training ──┬─ tables (owner RLS): tr_races, tr_plan_weeks, tr_plann
                 ├─ tr-plan-edit   { actions } → the ONLY writer of tr_planned_sessions
                 │                 (set_status / move / update / add_session / delete)
                 │                 + Google Calendar mirror; used by the week popup
+                ├─ tr-plan-chat   { week_start, message, history } → Claude turns Jared's
+                │                 description of the week into validated PROPOSAL actions
+                │                 (same vocabulary); read-only — Apply goes via tr-plan-edit
                 ├─ tr-activity    { id } → one run's downsampled HR/pace streams + device
                 │                 laps from intervals.icu, cached in tr_workouts.detail
                 │                 (≤600 points; { refresh: true } refetches)
@@ -219,6 +222,19 @@ Telegram ───────── tr-telegram-webhook  (verify_jwt FALSE, sec
   - Claude's system prompt marks "(Hevy)" strength sessions and the long run as
     HARD RULES to return unchanged. `dry_run: true` returns the computed week +
     `progression` without writing or touching the calendar (used for testing).
+- **"Plan with AI" chat in the week popup** (2026-09-16, `PlanChat` → `tr-plan-chat`):
+  Jared spells out the week he wants (this week or next — whichever is viewed);
+  Claude gets the viewed week's sessions (with ids), races, settings, the last 3
+  weeks of Hevy lifts (weights × reps per exercise) and runs, 7 days of wellness,
+  and his rules (rep ladder, long-run +12, structure); it replies + returns
+  actions in the editor's vocabulary (incl. `delete`), validated against the
+  viewed week (ids must belong to it, dates inside it). The panel shows the
+  proposal lines with Apply / Discard; Apply calls tr-plan-edit. History is
+  component state (resets when the viewed week changes). Ambiguous request → one
+  question, no actions.
+- **Draft-week rule in tr-plan-edit** (2026-09-16): `add_session` and re-open
+  create a calendar event ONLY if the week already has at least one event (it
+  was pushed); a never-pushed week stays a draft until "Push to Calendar".
 - **Calendar controls in the week popup**: "Push to Calendar" = `tr-plan-edit`
   `push_week` → creates events for sessions without one and PATCHES existing ones
   (never duplicates; rest/skipped excluded); "Clear" = `clear_week` → deletes the
@@ -271,7 +287,7 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
 ## Deploying
 
 - Edge functions: Supabase MCP `deploy_edge_function` (tr-connect / tr-sync /
-  tr-plan-week / tr-activity / tr-plan-edit `verify_jwt: true`; **tr-telegram-webhook `verify_jwt: false`**);
+  tr-plan-week / tr-activity / tr-plan-edit / tr-plan-chat `verify_jwt: true`; **tr-telegram-webhook `verify_jwt: false`**);
   `supabase/functions/` here is the source mirror.
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
   2026-09-05; 0007 `custom_name`, 0008 `tr_wellness.steps`, 0009 `tr_workouts.detail`,
