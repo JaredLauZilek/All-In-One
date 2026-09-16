@@ -327,9 +327,10 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
         </div>
         {generateResult && (
           <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-            Generated week of {generateResult.target} ({generateResult.generated_by}) · {generateResult.calendar_pushed} calendar events
+            Generated week of {generateResult.target} ({generateResult.generated_by})
             {generateResult.progression && "lifts" in generateResult.progression ? ` · lifts progressed from your last sessions` : ""}
             {generateResult.progression && "long_run" in generateResult.progression ? ` · long run progressed` : ""}
+            {" · "}<b>not on your calendar yet</b> — edit, then hit Push to Calendar
             {generateResult.target !== weekStart ? ` — use ▶ to view it` : ""}
           </p>
         )}
@@ -337,7 +338,7 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
           <b className="text-slate-700">Progression guide</b> (applied when a week is generated, then edit freely):
           lifts repeat last week's weight on a rep ladder 8 → 10 → 12, then +5% weight back to 8, every set must hit the rung ·
           easy long run +12 min per week, every 4th week shorter to absorb · tempo and intervals are a preliminary suggestion — design them here.
-          Edits, done/skip and delete update Google Calendar; "Push to Calendar" creates what's missing and updates the rest.
+          Generating never touches Google Calendar — "Push to Calendar" creates what's missing and updates the rest; after that, edits, done/skip and delete keep the events in step.
         </p>
         {calendar.isSuccess && <p className="rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">{calendar.data.applied.join(" · ")}</p>}
         {(error || edit.isError || calendar.isError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{error ?? String(edit.error ?? calendar.error)}</p>}

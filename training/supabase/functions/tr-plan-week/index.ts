@@ -6,8 +6,10 @@
 // share a day while another day is free) → optional Claude pass adapts to what
 // actually happened AND to Jared's Google Calendar for the week (busy/all-day
 // blocks push sessions to other days) within guardrails → rows written to
-// tr_plan_weeks / tr_planned_sessions → non-rest sessions pushed to Google
-// Calendar when the google secrets are configured.
+// tr_plan_weeks / tr_planned_sessions. NOTHING is pushed to Google Calendar here
+// (Jared, 2026-09-16): generating is a draft to edit; only the popup's "Push to
+// Calendar" (tr-plan-edit push_week) creates/updates events. Regenerating does
+// remove the events of the planned sessions it replaces, so no orphans linger.
 //
 // POST {week_start?: "YYYY-MM-DD" (Monday; default = next Monday MYT),
 //       use_claude?: boolean (default true), dry_run?: boolean (compute only)}
@@ -262,24 +264,6 @@ async function gcalBusy(access: string, weekStart: Date): Promise<{ date: string
   return out;
 }
 
-async function gcalInsert(access: string, sess: Sess, sessionTime: string): Promise<string | null> {
-  const calId = encodeURIComponent(Deno.env.get("GOOGLE_CALENDAR_ID") ?? "primary");
-  const start = `${sess.session_date}T${sessionTime}:00+08:00`;
-  const mins = sess.planned_minutes ?? 60;
-  const end = new Date(new Date(start).getTime() + mins * 60_000).toISOString();
-  const r = await fetch(`https://www.googleapis.com/calendar/v3/calendars/${calId}/events`, {
-    method: "POST",
-    headers: { Authorization: `Bearer ${access}`, "Content-Type": "application/json" },
-    body: JSON.stringify({
-      summary: `🏋️ ${sess.title}`,
-      description: `${sess.detail}\n\n— All-In-One Training`,
-      start: { dateTime: start }, end: { dateTime: end },
-    }),
-  });
-  if (!r.ok) return null;
-  return (await r.json()).id ?? null;
-}
-
 /* ---------------- optional Claude adjustment pass ---------------- */
 async function claudeAdjust(ctx: Record<string, unknown>, sessions: Sess[]): Promise<{ sessions?: Sess[]; focus?: string; error?: string }> {
   const key = Deno.env.get("ANTHROPIC_API_KEY");
@@ -531,7 +515,9 @@ Deno.serve(async (req) => {
     }, { onConflict: "user_id,week_start" }).select().single();
     if (werr) return json({ error: werr.message }, 500);
 
-    // regenerate = replace still-planned sessions; completed/skipped rows stay
+    // regenerate = replace still-planned sessions; completed/skipped rows stay.
+    // Their calendar events go too (they'd be orphans) — but the NEW sessions are
+    // NOT pushed: that's the explicit "Push to Calendar" button's job.
     const { data: old } = await svc.from("tr_planned_sessions").select("id, gcal_event_id")
       .eq("user_id", userId).eq("status", "planned")
       .gte("session_date", weekStartStr).lte("session_date", iso(addDays(weekStart, 6)));
@@ -547,20 +533,12 @@ Deno.serve(async (req) => {
     }
     if ((old ?? []).length) await svc.from("tr_planned_sessions").delete().in("id", (old ?? []).map((o) => o.id));
 
-    let pushed = 0;
-    const rows = [];
-    for (const s of sessions) {
-      let gcalId: string | null = null;
-      if (access && s.sport !== "rest") {
-        gcalId = await gcalInsert(access, s, settings?.session_time ?? "06:30");
-        if (gcalId) pushed++;
-      }
-      rows.push({ ...s, user_id: userId, race_id: race?.id ?? null, gcal_event_id: gcalId });
-    }
+    const rows = sessions.map((s) => ({ ...s, user_id: userId, race_id: race?.id ?? null, gcal_event_id: null }));
     const { data: inserted, error: serr } = await svc.from("tr_planned_sessions").insert(rows).select();
     if (serr) return json({ error: serr.message }, 500);
 
-    return json({ week, sessions: inserted, calendar_pushed: pushed, generated_by: generatedBy, progression, claude_error: claudeError });
+    return json({ week, sessions: inserted, calendar_pushed: 0, calendar_removed: (old ?? []).filter((o) => o.gcal_event_id).length,
+      generated_by: generatedBy, progression, claude_error: claudeError });
   } catch (e) {
     return json({ error: String(e) }, 500);
   }
