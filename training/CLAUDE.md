@@ -89,10 +89,10 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   refetches Hevy's full exercise library (`/v1/exercise_templates`, 5 pages × 100)
   only when it meets an id it hasn't cached. Exercises synced before 0011 have no
   template_id until the next sync rewrites them ("not yet in the library" note).
-- **Sync is manual only** — no cron. Triggers: the Sync button on the Overview tab AND
-  the Activities tab (both call `tr-sync` with the default 45-day window — one call
-  covers intervals.icu + wellness + Hevy), an HR-zone edit in Settings (120 days),
-  and the Telegram `/sync` command.
+- **Sync is manual only** — no cron. Triggers: the Sync button on the Activities tab
+  (the Overview's copy was removed 2026-09-17 — one is enough; it calls `tr-sync`
+  with the default 45-day window — one call covers intervals.icu + wellness + Hevy),
+  an HR-zone edit in Settings (120 days), and the Telegram `/sync` command.
 - **Custom HR zones are DATED VERSIONS** (`tr_hr_zones`: effective_from + ceilings +
   note; 0004 single-column form superseded by 0005). Each set applies to activities
   on/after its date until the next version; activities older than the earliest

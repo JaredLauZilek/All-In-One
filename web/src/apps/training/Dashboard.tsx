@@ -9,7 +9,7 @@
 // Calendar when configured). Mid-week changes happen through the Telegram bot.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { RefreshCw, Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX, ChevronLeft, ChevronRight, MessageSquare, Send } from "lucide-react";
+import { Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX, ChevronLeft, ChevronRight, MessageSquare, Send } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, StatusBadge, Modal, Input, Select, Textarea, cn } from "../../components/ui";
 import {
@@ -91,15 +91,6 @@ export default function Dashboard() {
   const invalidate = () => { qc.invalidateQueries({ queryKey: ["tr-week"] }); qc.invalidateQueries({ queryKey: ["tr-plan"] }); };
   const [planOpen, setPlanOpen] = useState(false);
 
-  const sync = useMutation({
-    mutationFn: async () => {
-      const { data: res, error } = await supabase.functions.invoke("tr-sync", { body: {} });
-      if (error) throw error;
-      return res as { intervals: number; removed: number; wellness: number; strava: number; hevy: number; matched: number; errors: string[] };
-    },
-    onSuccess: invalidate,
-  });
-
   const sessions = data?.sessions ?? [];
   const done = sessions.filter((s) => s.status === "done").length;
   const nonRest = sessions.filter((s) => s.sport !== "rest");
@@ -131,8 +122,7 @@ export default function Dashboard() {
       {/* Row 2: the week, full width (day columns) — click → popup editor */}
       <WeekCard weekStart={viewWeek} currentWeek={weekStart} week={plan.data?.week ?? null} sessions={plan.data?.sessions ?? []}
         onPrev={() => setViewWeek(addDaysISO(viewWeek, -7))} onNext={() => setViewWeek(addDaysISO(viewWeek, 7))}
-        onOpen={() => setPlanOpen(true)} onSync={() => sync.mutate()} syncing={sync.isPending}
-        syncResult={sync.isSuccess ? sync.data : null} syncError={sync.isError ? String(sync.error) : null} />
+        onOpen={() => setPlanOpen(true)} />
 
       {/* Row 3: the three charts, equal height */}
       <div className="grid grid-cols-1 gap-6 md:grid-cols-3">
@@ -145,7 +135,6 @@ export default function Dashboard() {
         <WeekPlanModal weekStart={viewWeek} currentWeek={weekStart} week={plan.data?.week ?? null} sessions={plan.data?.sessions ?? []}
           onPrev={() => setViewWeek(addDaysISO(viewWeek, -7))} onNext={() => setViewWeek(addDaysISO(viewWeek, 7))}
           onClose={() => setPlanOpen(false)} onChanged={invalidate}
-          onSync={() => sync.mutate()} syncing={sync.isPending}
           />
       )}
     </div>
@@ -197,12 +186,9 @@ function WeekNav({ weekStart, currentWeek, onPrev, onNext }: { weekStart: string
   );
 }
 
-function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOpen, onSync, syncing, syncResult, syncError }: {
+function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOpen }: {
   weekStart: string; currentWeek: string; week: TrPlanWeek | null; sessions: TrSession[];
   onPrev: () => void; onNext: () => void; onOpen: () => void;
-  onSync: () => void; syncing: boolean;
-  syncResult: { intervals: number; wellness: number; hevy: number; matched: number; removed: number; errors: string[] } | null;
-  syncError: string | null;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
   const today = localISO(new Date());
@@ -211,21 +197,7 @@ function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOp
       <div onClick={onOpen}>
         <CardHeader title={`Week of ${weekStart}`}
           subtitle={week ? `${BLOCK_LABELS[week.block] ?? week.block} · ${week.generated_by}${week.focus ? ` · ${week.focus}` : ""}` : "No plan for this week yet — open and plan it with AI"}
-          action={
-            <div className="flex items-center gap-2">
-              <WeekNav weekStart={weekStart} currentWeek={currentWeek} onPrev={onPrev} onNext={onNext} />
-              <Button variant="secondary" onClick={(e) => { e.stopPropagation(); onSync(); }} loading={syncing}>
-                <RefreshCw className="h-4 w-4" /> Sync
-              </Button>
-            </div>
-          } />
-        {syncError && <p className="mx-5 mt-3 rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{syncError}</p>}
-        {syncResult && (
-          <p className="mx-5 mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-xs text-emerald-700">
-            Synced — intervals.icu {syncResult.intervals ?? 0} · Hevy {syncResult.hevy ?? 0} · matched {syncResult.matched}
-            {syncResult.removed ? ` · removed ${syncResult.removed}` : ""}{syncResult.errors?.length ? ` · ⚠ ${syncResult.errors.join("; ")}` : ""}
-          </p>
-        )}
+          action={<WeekNav weekStart={weekStart} currentWeek={currentWeek} onPrev={onPrev} onNext={onNext} />} />
         <div className="grid grid-cols-2 gap-px bg-slate-100 sm:grid-cols-4 lg:grid-cols-7">
           {days.map((d) => {
             const dt = new Date(d + "T00:00:00");
@@ -257,10 +229,9 @@ function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOp
 
 /* The popup: structure and design this week. Every change is one tr-plan-edit
    action (same write path as the bot → Google Calendar stays in sync). */
-function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext, onClose, onChanged, onSync, syncing }: {
+function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext, onClose, onChanged }: {
   weekStart: string; currentWeek: string; week: TrPlanWeek | null; sessions: TrSession[];
   onPrev: () => void; onNext: () => void; onClose: () => void; onChanged: () => void;
-  onSync: () => void; syncing: boolean;
 }) {
   const [editing, setEditing] = useState<string | null>(null); // session id being edited, "new:<date>" for a draft
   const edit = useMutation({ mutationFn: planEdit, onSuccess: () => { onChanged(); setEditing(null); } });
@@ -280,7 +251,6 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
         </div>
         <div className="flex flex-wrap items-center justify-end gap-3">
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" onClick={onSync} loading={syncing}><RefreshCw className="h-4 w-4" /> Sync</Button>
             <Button variant="secondary" title="Create missing calendar events and update existing ones — never duplicates"
               onClick={() => calendar.mutate([{ op: "push_week", week_start: weekStart }])} loading={calendar.isPending}>
               <CalendarPlus className="h-4 w-4" /> Push to Calendar
