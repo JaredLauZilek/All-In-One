@@ -222,10 +222,11 @@ export function Switch({ checked, onChange, disabled }: { checked: boolean; onCh
 }
 
 export function StatCard({ label, value, icon, accent }: { label: string; value: string | number; icon: ReactNode; accent: string }) {
-  // Compact below sm — stat grids show these 2-up on phones.
+  // Compact below sm — stat grids show these 2-up on phones. h-full + centred
+  // so a card stretched by a taller grid neighbour keeps its content in the middle.
   return (
-    <Card className="p-4 sm:p-5">
-      <div className="flex items-center gap-3 sm:gap-4">
+    <Card className="flex h-full items-center p-4 sm:p-5">
+      <div className="flex w-full items-center gap-3 sm:gap-4">
         <div className={cn("flex h-10 w-10 shrink-0 items-center justify-center rounded-lg sm:h-11 sm:w-11", accent)}>{icon}</div>
         <div className="min-w-0">
           <p className="text-xs font-medium text-slate-500">{label}</p>
