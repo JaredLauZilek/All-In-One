@@ -8,7 +8,7 @@ import { useState } from "react";
 import { CalendarRange, RefreshCw, Pencil } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, EmptyState, Modal, cn } from "../../components/ui";
-import { type TrWorkout, type TrWellness, type HevySet, type HevyExercise, hevyExercises, workingSets, tonnageKg, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
+import { type TrWorkout, type TrWellness, type HevySet, type HevyExercise, hevyExercises, workingSets, tonnageKg, dedupeGymShadows, GYM_SPORTS, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
 
 const WEEKS_SHOWN = 6;
 
@@ -16,7 +16,7 @@ const WEEKS_SHOWN = 6;
    gym sessions as a generic "Workout" (→ 'other'); a Garmin entry that overlaps a
    Hevy lift in time is dropped (dedupeGymShadows) so the session isn't counted twice. */
 const CARDIO = ["run", "ride", "swim", "brick", "hyrox"];
-const GYM = ["strength", "other"];
+const GYM = GYM_SPORTS;
 
 /* Zone bars mirror the athlete's ACTUAL intervals.icu HR-zone model — Jared's
    profile has 7 zones (ceilings in data.icu_hr_zones), so folding to 5 both
@@ -68,28 +68,6 @@ const setLabel = (st: HevySet) => {
 
 const workoutDay = (w: TrWorkout) => localISO(new Date(w.started_at));
 
-/* Hevy (Pro) is the source of truth for lifts. Jared still wears his Garmin in
-   the gym, so the SAME session can also arrive from intervals.icu as a generic
-   "Workout" (sport 'other') or a Strength activity. Left alone, the gym bucket
-   counts it twice — the exact duplicates he was deleting by hand. A Garmin
-   gym-bucket entry is a shadow only when its recording window OVERLAPS a Hevy
-   lift (±20 min slack — the two timers never start together). A same-day test
-   was too blunt: it hid a 36-second morning Garmin walk because of an evening
-   Pull session (27 Jul 2026). No overlapping lift = the Garmin entry stays, so a
-   forgotten Hevy log still counts as gym. DB rows are untouched (Garmin's HR data). */
-const SHADOW_SLACK_MS = 20 * 60_000;
-const spanOf = (w: TrWorkout): [number, number] => {
-  const start = new Date(w.started_at).getTime();
-  return [start, start + Number(w.duration_min ?? 0) * 60_000];
-};
-function dedupeGymShadows(list: TrWorkout[]): TrWorkout[] {
-  const lifts = list.filter((w) => w.source === "hevy").map(spanOf);
-  return list.filter((w) => {
-    if (w.source !== "intervals" || !(GYM as readonly string[]).includes(w.sport)) return true;
-    const [s, e] = spanOf(w);
-    return !lifts.some(([ls, le]) => s < le + SHADOW_SLACK_MS && ls < e + SHADOW_SLACK_MS);
-  });
-}
 
 export default function Activities() {
   // With custom zone versions configured, cards NEVER fall back to

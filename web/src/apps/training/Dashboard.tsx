@@ -16,7 +16,7 @@ import {
   type TrPlanWeek, type TrRace, type TrSession, type TrWorkout, type TrHevyExercise,
   RACE_TYPES, SPORT_EMOJI, BLOCK_LABELS, DAY_NAMES,
   mondayOf, addDaysISO, daysUntil, localISO, useTrSettings,
-  hevyExercises, workingSets, tonnageKg, muscleLabel,
+  hevyExercises, workingSets, tonnageKg, muscleLabel, dedupeGymShadows,
 } from "./lib";
 
 const CHART_WEEKS = 8;
@@ -133,6 +133,7 @@ export default function Dashboard() {
 
       {planOpen && (
         <WeekPlanModal weekStart={viewWeek} currentWeek={weekStart} week={plan.data?.week ?? null} sessions={plan.data?.sessions ?? []}
+          workouts={dedupeGymShadows(data?.workouts ?? []).filter((w) => workoutDay(w) >= viewWeek && workoutDay(w) <= addDaysISO(viewWeek, 6))}
           onPrev={() => setViewWeek(addDaysISO(viewWeek, -7))} onNext={() => setViewWeek(addDaysISO(viewWeek, 7))}
           onClose={() => setPlanOpen(false)} onChanged={invalidate}
           />
@@ -229,8 +230,8 @@ function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOp
 
 /* The popup: structure and design this week. Every change is one tr-plan-edit
    action (same write path as the bot → Google Calendar stays in sync). */
-function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext, onClose, onChanged }: {
-  weekStart: string; currentWeek: string; week: TrPlanWeek | null; sessions: TrSession[];
+function WeekPlanModal({ weekStart, currentWeek, week, sessions, workouts, onPrev, onNext, onClose, onChanged }: {
+  weekStart: string; currentWeek: string; week: TrPlanWeek | null; sessions: TrSession[]; workouts: TrWorkout[];
   onPrev: () => void; onNext: () => void; onClose: () => void; onChanged: () => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null); // session id being edited, "new:<date>" for a draft
@@ -241,6 +242,10 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
   const withEvents = sessions.filter((s) => s.gcal_event_id).length;
   const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
   const byDay = (d: string) => sessions.filter((s) => s.session_date === d);
+  const todayIso = localISO(new Date());
+  // Past days are history: no "add session"; instead what was ACTUALLY done
+  // (synced workouts, same records the Activities tab shows).
+  const actualsOn = (d: string) => workouts.filter((w) => workoutDay(w) === d);
 
   return (
     <Modal open onClose={onClose} title={`Week of ${weekStart}${week ? ` · ${BLOCK_LABELS[week.block] ?? week.block}` : ""}`} wide>
@@ -278,7 +283,8 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
         <div className="divide-y divide-slate-100 rounded-2xl border border-slate-200/60">
           {days.map((d) => {
             const dt = new Date(d + "T00:00:00");
-            const isToday = d === localISO(new Date());
+            const isToday = d === todayIso;
+            const past = d < todayIso;
             return (
               <div key={d} className={cn("flex gap-3 px-4 py-3", isToday && "bg-indigo-50/40")}>
                 <div className="w-10 shrink-0 pt-1 text-center">
@@ -298,7 +304,9 @@ function WeekPlanModal({ weekStart, currentWeek, week, sessions, onPrev, onNext,
                         onStatus={(status) => edit.mutate([{ op: "set_status", id: s.id, status }])}
                         onDelete={() => { if (confirm(`Delete "${s.title}"?`)) edit.mutate([{ op: "delete", id: s.id }]); }} />
                   )}
-                  {editing === `new:${d}` ? (
+                  {past ? (
+                    <ActualBlock list={actualsOn(d)} />
+                  ) : editing === `new:${d}` ? (
                     <SessionForm initial={{ session_date: d, sport: "run", title: "", detail: "", planned_minutes: null, planned_km: null }}
                       weekDays={days} busy={edit.isPending} onCancel={() => setEditing(null)}
                       onSave={(v) => edit.mutate([{ op: "add_session", session_date: v.session_date, sport: v.sport, title: v.title, detail: v.detail, planned_minutes: v.planned_minutes, planned_km: v.planned_km }])} />
@@ -390,6 +398,42 @@ function PlanChat({ weekStart, onChanged }: { weekStart: string; onChanged: () =
             <Button onClick={send} loading={ask.isPending}><Send className="h-4 w-4" /> Send</Button>
           </div>
         </div>
+      )}
+    </div>
+  );
+}
+
+/* What actually happened on a past day — the synced records the Activities tab
+   shows (runs from intervals.icu, lifts from Hevy), one line each. */
+const fmtMin = (min: number) => { const m = Math.round(min); return m >= 60 ? `${Math.floor(m / 60)}h${String(m % 60).padStart(2, "0")}m` : `${m}m`; };
+const fmtPaceMin = (minPerKm: number) => { const s = Math.round(minPerKm * 60); return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`; };
+function ActualBlock({ list }: { list: TrWorkout[] }) {
+  return (
+    <div className="rounded-xl bg-emerald-50/60 px-3 py-2 dark:bg-emerald-50">
+      <p className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-emerald-700">Actual</p>
+      {list.length === 0 ? (
+        <p className="text-[11px] text-slate-400">Nothing recorded — rest day, or not synced yet.</p>
+      ) : (
+        <ul className="space-y-0.5">
+          {list.map((w) => {
+            const exs = hevyExercises(w);
+            const pace = w.sport === "run" && w.distance_km && w.duration_min ? Number(w.duration_min) / Number(w.distance_km) : null;
+            const bits = [
+              w.duration_min ? fmtMin(Number(w.duration_min)) : null,
+              w.distance_km ? `${Number(w.distance_km).toFixed(1)} km` : null,
+              pace ? `${fmtPaceMin(pace)} /km` : null,
+              w.avg_hr ? `${Math.round(Number(w.avg_hr))} bpm` : null,
+              exs.length ? `${exs.length} exercises · ${Math.round(tonnageKg(exs)).toLocaleString()} kg` : null,
+            ].filter(Boolean).join(" · ");
+            return (
+              <li key={w.id} className="text-xs text-slate-700">
+                <span className="mr-1">{SPORT_EMOJI[w.sport] ?? "•"}</span>
+                <span className="font-medium">{w.custom_name ?? w.name ?? w.sport}</span>
+                {bits && <span className="ml-2 font-mono text-[11px] text-slate-500">{bits}</span>}
+              </li>
+            );
+          })}
+        </ul>
       )}
     </div>
   );

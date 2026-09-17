@@ -44,6 +44,30 @@ export const workingSets = (sets: HevySet[]) => sets.filter((st) => st.type !== 
 export const tonnageKg = (exs: HevyExercise[]) =>
   exs.reduce((t, ex) => t + ex.sets.reduce((a, st) => a + (st.weight_kg ?? 0) * (st.reps ?? 0), 0), 0);
 
+/* Gym bucket for weekly splits: lifts (Hevy) + Garmin's generic "Workout" ('other'). */
+export const GYM_SPORTS = ["strength", "other"];
+
+/* Hevy (Pro) is the source of truth for lifts. Jared still wears his Garmin in
+   the gym, so the SAME session can also arrive from intervals.icu as a generic
+   "Workout" (sport 'other') or a Strength activity. A Garmin gym-bucket entry is
+   a shadow only when its recording window OVERLAPS a Hevy lift (±20 min slack —
+   the two timers never start together); a same-day test was too blunt (it hid a
+   36-second morning walk because of an evening Pull, 27 Jul 2026). DB rows are
+   untouched — this is display-side only. Used by Activities and the week popup. */
+const SHADOW_SLACK_MS = 20 * 60_000;
+const spanOf = (w: TrWorkout): [number, number] => {
+  const start = new Date(w.started_at).getTime();
+  return [start, start + Number(w.duration_min ?? 0) * 60_000];
+};
+export function dedupeGymShadows(list: TrWorkout[]): TrWorkout[] {
+  const lifts = list.filter((w) => w.source === "hevy").map(spanOf);
+  return list.filter((w) => {
+    if (w.source !== "intervals" || !GYM_SPORTS.includes(w.sport)) return true;
+    const [s, e] = spanOf(w);
+    return !lifts.some(([ls, le]) => s < le + SHADOW_SLACK_MS && ls < e + SHADOW_SLACK_MS);
+  });
+}
+
 /* tr_hevy_exercises (0011) — Hevy's exercise library, cached by tr-sync. */
 export interface TrHevyExercise {
   template_id: string; title: string; type: string | null;

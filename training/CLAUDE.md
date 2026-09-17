@@ -72,7 +72,9 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   legend table. **The week popup** (`WeekPlanModal`) is
   where the week is structured: per day, sessions can be edited inline (day, sport,
   km, minutes, title, detail), marked done/skipped/re-opened, deleted, or added
-  ("add session" under each day); Sync + Plan next week live in its header. Every
+  ("add session" under each day — FUTURE days and today only: a PAST day shows an
+  "Actual" block instead, the synced workouts of that day exactly as the Activities
+  tab records them, 2026-09-17); Push to Calendar lives in its header. Every
   edit is an action to **`tr-plan-edit`** (see Architecture) — the single write path
   for the plan, shared with the bot, which mirrors Google Calendar (insert on add /
   re-open, patch on update / move, delete on skip / delete). The old big race
