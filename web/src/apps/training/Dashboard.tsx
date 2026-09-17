@@ -9,7 +9,7 @@
 // Calendar when configured). Mid-week changes happen through the Telegram bot.
 import { useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Check, X, CalendarDays, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX, ChevronLeft, ChevronRight, MessageSquare, Send } from "lucide-react";
+import { Check, X, CalendarDays, Pencil, Plus, Trash2, RotateCcw, CalendarPlus, CalendarX, ChevronLeft, ChevronRight, MessageSquare, Send } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, StatusBadge, Modal, Input, Select, Textarea, cn } from "../../components/ui";
 import {
@@ -135,9 +135,7 @@ export default function Dashboard() {
           accent="bg-indigo-50 text-indigo-600" icon={<CalendarDays className="h-5 w-5" />} />
         <StatCard label="Sessions done" value={`${doneCount}/${totalCount || "—"}`}
           accent="bg-emerald-50 text-emerald-600" icon={<Check className="h-5 w-5" />} />
-        <StatCard label="Run km (actual/plan)"
-          value={`${actualKm.toFixed(0)}/${plannedRunKm > 0 ? plannedRunKm.toFixed(0) : "—"}`}
-          accent="bg-amber-50 text-amber-600" icon={<span className="text-base">🏃</span>} />
+        <RunKmStat actualKm={actualKm} derivedKm={plannedRunKm} week={data?.week ?? null} weekStart={weekStart} onSaved={invalidate} />
         <StatCard label="Hours this week" value={actualHours.toFixed(1)}
           accent="bg-slate-100 text-slate-600" icon={<span className="text-base">⏱️</span>} />
       </div>
@@ -163,6 +161,60 @@ export default function Dashboard() {
           />
       )}
     </div>
+  );
+}
+
+/* ---------------- row-1: run km with an editable target ---------------- */
+/* Denominator = tr_plan_weeks.target_km when Jared has set one (click the
+   pencil), else the sum of planned_km on this week's run sessions. Upserts the
+   week row directly (owner RLS; user_id defaults to auth.uid()). */
+function RunKmStat({ actualKm, derivedKm, week, weekStart, onSaved }: {
+  actualKm: number; derivedKm: number; week: TrPlanWeek | null; weekStart: string; onSaved: () => void;
+}) {
+  const manual = week?.target_km != null ? Number(week.target_km) : null;
+  const target = manual ?? (derivedKm > 0 ? derivedKm : null);
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState("");
+  const save = useMutation({
+    mutationFn: async (value: number | null) => {
+      const { error } = await supabase.from("tr_plan_weeks")
+        .upsert({ week_start: weekStart, block: week?.block ?? "base", target_km: value }, { onConflict: "user_id,week_start" });
+      if (error) throw error;
+    },
+    onSuccess: () => { setEditing(false); onSaved(); },
+  });
+  const commit = () => {
+    const v = draft.trim();
+    if (v === "") { save.mutate(null); return; } // blank = back to the derived sum
+    const n = Number(v);
+    if (Number.isFinite(n) && n >= 0) save.mutate(Math.round(n * 10) / 10); else setEditing(false);
+  };
+  return (
+    <Card className="flex h-full items-center p-4 sm:p-5">
+      <div className="flex w-full items-center gap-3 sm:gap-4">
+        <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-amber-50 text-amber-600 sm:h-11 sm:w-11"><span className="text-base">🏃</span></div>
+        <div className="min-w-0 flex-1">
+          <p className="text-xs font-medium text-slate-500">Run km (actual/plan)</p>
+          {editing ? (
+            <div className="mt-0.5 flex items-center gap-1 font-mono text-xl font-semibold text-slate-900">
+              <span>{actualKm.toFixed(0)}/</span>
+              <input autoFocus type="number" step="0.5" min="0" value={draft} onChange={(e) => setDraft(e.target.value)}
+                onBlur={commit} onKeyDown={(e) => { if (e.key === "Enter") commit(); if (e.key === "Escape") setEditing(false); }}
+                placeholder={derivedKm > 0 ? derivedKm.toFixed(0) : "km"}
+                className="w-16 rounded-md border border-slate-300 bg-surface px-1.5 py-0.5 text-lg outline-none ring-indigo-500 focus:ring-2" />
+            </div>
+          ) : (
+            <button type="button" onClick={() => { setDraft(target != null ? String(target) : ""); setEditing(true); }}
+              title={manual != null ? "Your target — click to change (blank = use the planned sessions' km)" : "Sum of this week's planned run km — click to set your own target"}
+              className="group mt-0.5 flex items-center gap-1.5 truncate text-left text-xl font-semibold text-slate-900 sm:text-2xl">
+              {actualKm.toFixed(0)}/{target != null ? target.toFixed(0) : "—"}
+              <Pencil className="h-3.5 w-3.5 text-slate-300 group-hover:text-slate-600" />
+            </button>
+          )}
+          {save.isError && <p className="text-[10px] text-red-500">{String(save.error)}</p>}
+        </div>
+      </div>
+    </Card>
   );
 }
 

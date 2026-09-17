@@ -98,10 +98,11 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   not — planned non-rest sessions ticked done + workouts no planned session covers
   (matched by tr-sync, or a done session same day + compatible sport per
   `SPORT_MATCH`, a mirror of tr-sync's MATCHES); the extras join the denominator
-  too ("3/10", never "0/7"). **Run km (actual/plan)** = synced run km / Σ
-  `planned_km` of this week's non-skipped run sessions — Jared controls it through
-  the editor/chat; `tr_plan_weeks.planned_km` (the old rule-engine number) is no
-  longer shown.
+  too ("3/10", never "0/7"). **Run km (actual/plan)** = synced run km /
+  `tr_plan_weeks.target_km` (0012 — Jared's manual target, set by clicking the
+  pencil on the stat; blank = clear) falling back to Σ `planned_km` of this week's
+  non-skipped run sessions; `tr_plan_weeks.planned_km` (the old rule-engine number)
+  is no longer shown. The stat upserts the week row from the browser (owner RLS).
 - **Sync is manual only** — no cron. Triggers: the Sync button on the Activities tab
   (the Overview's copy was removed 2026-09-17 — one is enough; it calls `tr-sync`
   with the default 45-day window — one call covers intervals.icu + wellness + Hevy),
@@ -308,8 +309,8 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
   `supabase/functions/` here is the source mirror.
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
   2026-09-05; 0007 `custom_name`, 0008 `tr_wellness.steps`, 0009 `tr_workouts.detail`,
-  0010 `tr_bot_proposals`, 0011 `tr_hevy_exercises` applied 2026-09-07). Next
-  migration: `0012_`.
+  0010 `tr_bot_proposals`, 0011 `tr_hevy_exercises` applied 2026-09-07; 0012
+  `tr_plan_weeks.target_km` applied 2026-09-17). Next migration: `0013_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).
 
 ## Gotchas

@@ -12,6 +12,7 @@ export interface TrPlanWeek {
   id: string; race_id: string | null; week_start: string; block: string;
   focus: string | null; planned_km: number | null; planned_minutes: number | null;
   generated_by: string; notes: string | null;
+  target_km?: number | null; // manual weekly run-km target (0012); null = derive from sessions
 }
 
 export interface TrSession {
