@@ -21,6 +21,12 @@ import {
 
 const CHART_WEEKS = 8;
 const workoutDay = (w: TrWorkout) => localISO(new Date(w.started_at)); // fixed MYT
+// A workout of sport X can count as executing a planned session of these sports
+// (mirror of tr-sync's MATCHES — keep the two in step).
+const SPORT_MATCH: Record<string, string[]> = {
+  run: ["run", "hyrox", "brick"], ride: ["ride", "brick"], swim: ["swim", "brick"],
+  strength: ["strength", "hyrox"], other: ["other", "hyrox", "mobility"],
+};
 
 function useWeekData(weekStart: string) {
   return useQuery({
@@ -92,13 +98,30 @@ export default function Dashboard() {
   const [planOpen, setPlanOpen] = useState(false);
 
   const sessions = data?.sessions ?? [];
-  const done = sessions.filter((s) => s.status === "done").length;
-  const nonRest = sessions.filter((s) => s.sport !== "rest");
-  const weekWorkouts = (data?.workouts ?? []).filter(
+  const allWorkouts = dedupeGymShadows(data?.workouts ?? []);
+  const weekWorkouts = allWorkouts.filter(
     (w) => workoutDay(w) >= weekStart && workoutDay(w) <= addDaysISO(weekStart, 6),
   );
+  // Sessions done = what was EXECUTED, planned or not (Jared, 2026-09-17):
+  // planned sessions ticked done + real workouts that no planned session
+  // covers. Those extras join the denominator too, so 3 unplanned runs on a
+  // 7-session plan read "3/10", not "0/7". "Covers" = the session was matched
+  // by tr-sync to this workout, or is a done session on the same day with a
+  // compatible sport (same vocabulary as tr-sync's matcher).
+  const nonRest = sessions.filter((s) => s.sport !== "rest");
+  const doneSessions = nonRest.filter((s) => s.status === "done");
+  const covered = (w: TrWorkout) =>
+    nonRest.some((s) => s.matched_workout_id === w.id) ||
+    doneSessions.some((s) => s.session_date === workoutDay(w) && (SPORT_MATCH[w.sport] ?? [w.sport]).includes(s.sport));
+  const unplanned = weekWorkouts.filter((w) => !covered(w));
+  const doneCount = doneSessions.length + unplanned.length;
+  const totalCount = nonRest.length + unplanned.length;
   const actualKm = weekWorkouts.filter((w) => w.sport === "run")
     .reduce((a, w) => a + (Number(w.distance_km) || 0), 0);
+  // Plan km = the km on the run sessions Jared planned this week (skipped ones
+  // excluded) — HE controls it via the editor/chat, not the old rule engine's number.
+  const plannedRunKm = sessions.filter((s) => s.sport === "run" && s.status !== "skipped")
+    .reduce((a, s) => a + (Number(s.planned_km) || 0), 0);
   const actualHours = weekWorkouts.reduce((a, w) => a + (Number(w.duration_min) || 0), 0) / 60;
   const race = data?.race ?? null;
   const dTo = race?.race_date ? daysUntil(race.race_date) : null;
@@ -110,10 +133,10 @@ export default function Dashboard() {
         <RaceMiniCard race={race} week={data?.week ?? null} />
         <StatCard label="Next race" value={dTo != null ? `${dTo} days` : race ? "date TBC" : "—"}
           accent="bg-indigo-50 text-indigo-600" icon={<CalendarDays className="h-5 w-5" />} />
-        <StatCard label="Sessions done" value={`${done}/${nonRest.length || "—"}`}
+        <StatCard label="Sessions done" value={`${doneCount}/${totalCount || "—"}`}
           accent="bg-emerald-50 text-emerald-600" icon={<Check className="h-5 w-5" />} />
         <StatCard label="Run km (actual/plan)"
-          value={`${actualKm.toFixed(0)}/${data?.week?.planned_km ?? "—"}`}
+          value={`${actualKm.toFixed(0)}/${plannedRunKm > 0 ? plannedRunKm.toFixed(0) : "—"}`}
           accent="bg-amber-50 text-amber-600" icon={<span className="text-base">🏃</span>} />
         <StatCard label="Hours this week" value={actualHours.toFixed(1)}
           accent="bg-slate-100 text-slate-600" icon={<span className="text-base">⏱️</span>} />
@@ -121,6 +144,7 @@ export default function Dashboard() {
 
       {/* Row 2: the week, full width (day columns) — click → popup editor */}
       <WeekCard weekStart={viewWeek} currentWeek={weekStart} week={plan.data?.week ?? null} sessions={plan.data?.sessions ?? []}
+        workouts={allWorkouts.filter((w) => workoutDay(w) >= viewWeek && workoutDay(w) <= addDaysISO(viewWeek, 6))}
         onPrev={() => setViewWeek(addDaysISO(viewWeek, -7))} onNext={() => setViewWeek(addDaysISO(viewWeek, 7))}
         onOpen={() => setPlanOpen(true)} />
 
@@ -133,7 +157,7 @@ export default function Dashboard() {
 
       {planOpen && (
         <WeekPlanModal weekStart={viewWeek} currentWeek={weekStart} week={plan.data?.week ?? null} sessions={plan.data?.sessions ?? []}
-          workouts={dedupeGymShadows(data?.workouts ?? []).filter((w) => workoutDay(w) >= viewWeek && workoutDay(w) <= addDaysISO(viewWeek, 6))}
+          workouts={allWorkouts.filter((w) => workoutDay(w) >= viewWeek && workoutDay(w) <= addDaysISO(viewWeek, 6))}
           onPrev={() => setViewWeek(addDaysISO(viewWeek, -7))} onNext={() => setViewWeek(addDaysISO(viewWeek, 7))}
           onClose={() => setPlanOpen(false)} onChanged={invalidate}
           />
@@ -187,8 +211,33 @@ function WeekNav({ weekStart, currentWeek, onPrev, onNext }: { weekStart: string
   );
 }
 
-function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOpen }: {
-  weekStart: string; currentWeek: string; week: TrPlanWeek | null; sessions: TrSession[];
+/* Compact record of one executed activity — the Activities tab's card, minus
+   the zone bars and popups (open the Activities tab for those). */
+function MiniActivity({ w }: { w: TrWorkout }) {
+  const exs = hevyExercises(w);
+  const pace = w.sport === "run" && w.distance_km && w.duration_min ? Number(w.duration_min) / Number(w.distance_km) : null;
+  return (
+    <div className="rounded-xl bg-slate-50 px-2 py-1.5 text-[11px] leading-tight dark:bg-slate-100">
+      <p className="truncate font-sans font-semibold text-slate-900" title={w.custom_name ?? w.name ?? w.sport}>{w.custom_name ?? w.name ?? w.sport}</p>
+      <p className="font-mono font-semibold text-slate-800">
+        {SPORT_EMOJI[w.sport] ?? "•"} {w.duration_min ? fmtMin(Number(w.duration_min)) : "—"}
+        {w.distance_km ? ` · ${Number(w.distance_km).toFixed(1)} km` : ""}
+        {exs.length ? ` · ${Math.round(tonnageKg(exs)).toLocaleString()} kg` : ""}
+      </p>
+      {(w.avg_hr != null || pace != null) && (
+        <p className="font-mono text-[10px] text-slate-500">
+          {w.avg_hr != null && <span>HR <b className="text-red-500">{Math.round(Number(w.avg_hr))}</b></span>}
+          {w.avg_hr != null && pace != null && " · "}
+          {pace != null && <span>pace <b className="text-indigo-600">{fmtPaceMin(pace)}</b></span>}
+        </p>
+      )}
+      {exs.length > 0 && <p className="truncate font-sans text-[10px] text-slate-500">{exs.map((e) => e.name).join(" · ")}</p>}
+    </div>
+  );
+}
+
+function WeekCard({ weekStart, currentWeek, week, sessions, workouts, onPrev, onNext, onOpen }: {
+  weekStart: string; currentWeek: string; week: TrPlanWeek | null; sessions: TrSession[]; workouts: TrWorkout[];
   onPrev: () => void; onNext: () => void; onOpen: () => void;
 }) {
   const days = Array.from({ length: 7 }, (_, i) => addDaysISO(weekStart, i));
@@ -203,12 +252,14 @@ function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOp
           {days.map((d) => {
             const dt = new Date(d + "T00:00:00");
             const list = sessions.filter((x) => x.session_date === d);
+            const acts = workouts.filter((w) => workoutDay(w) === d);
             return (
-              <div key={d} className={cn("min-h-[6.5rem] bg-surface px-3 py-2.5", d === today && "bg-indigo-50/40")}>
+              <div key={d} className={cn("min-h-[9rem] bg-surface px-3 py-2.5", d === today && "bg-indigo-50/40")}>
                 <p className={cn("mb-1.5 text-[10px] font-semibold uppercase", d === today ? "text-indigo-600" : "text-slate-400")}>
                   {DAY_NAMES[(dt.getDay() + 6) % 7]} <span className="font-mono">{d.slice(8)}</span>
                 </p>
-                {list.length === 0 ? <p className="text-[11px] text-slate-300">—</p> : list.map((x) => (
+                {/* planner area */}
+                {list.length === 0 ? <p className="text-[11px] text-slate-300">no plan</p> : list.map((x) => (
                   <div key={x.id} className="mb-1.5">
                     <p className={cn("text-xs leading-snug", x.status === "skipped" ? "text-slate-400 line-through" : "font-medium text-slate-800")}>
                       {SPORT_EMOJI[x.sport] ?? "•"} {x.title}
@@ -218,6 +269,14 @@ function WeekCard({ weekStart, currentWeek, week, sessions, onPrev, onNext, onOp
                     {sessionMeta(x) && <p className="font-mono text-[10px] text-slate-400">{sessionMeta(x)}</p>}
                   </div>
                 ))}
+                {/* executed area — what actually happened, Activities-tab style */}
+                {(acts.length > 0 || d <= today) && (
+                  <div className="mt-2 space-y-1.5 border-t border-dashed border-slate-200 pt-2">
+                    {acts.length === 0
+                      ? <p className="text-[10px] text-slate-300">nothing recorded</p>
+                      : acts.map((w) => <MiniActivity key={w.id} w={w} />)}
+                  </div>
+                )}
               </div>
             );
           })}

@@ -63,8 +63,11 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
 - **Overview tab** (`/training`, the old "Week" tab). Layout (2026-09-07, Jared:
   "everything important was crammed into the right column"): **row 1** = a compact
   dark race card (2 cols) + four half-width stat cards (6-col grid on xl); **row 2**
-  = **Week of …** full width as seven day columns (Sync button; click anywhere → the
-  week popup); **row 3** = three equal-height chart cards: Weight lifted · Set count
+  = **Week of …** full width as seven day columns — planner area on top (planned
+  sessions with ✓/✗), then a dashed divider and the EXECUTED activities of the day
+  as compact Activities-style cards (time · km / kg, HR, pace, exercise names;
+  Garmin gym shadows deduped; "nothing recorded" on past days) — click anywhere →
+  the week popup; **row 3** = three equal-height chart cards: Weight lifted · Set count
   per muscle · Run km. Recovery and Volume progression cards were removed
   2026-09-07 (wellness still shows per day on the Activities tab). The muscle card
   keeps the same chart box as its neighbours; muscles are chosen in a scrollable
@@ -91,6 +94,14 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   refetches Hevy's full exercise library (`/v1/exercise_templates`, 5 pages × 100)
   only when it meets an id it hasn't cached. Exercises synced before 0011 have no
   template_id until the next sync rewrites them ("not yet in the library" note).
+- **Overview stat cards** (2026-09-17): **Sessions done** = executed, planned or
+  not — planned non-rest sessions ticked done + workouts no planned session covers
+  (matched by tr-sync, or a done session same day + compatible sport per
+  `SPORT_MATCH`, a mirror of tr-sync's MATCHES); the extras join the denominator
+  too ("3/10", never "0/7"). **Run km (actual/plan)** = synced run km / Σ
+  `planned_km` of this week's non-skipped run sessions — Jared controls it through
+  the editor/chat; `tr_plan_weeks.planned_km` (the old rule-engine number) is no
+  longer shown.
 - **Sync is manual only** — no cron. Triggers: the Sync button on the Activities tab
   (the Overview's copy was removed 2026-09-17 — one is enough; it calls `tr-sync`
   with the default 45-day window — one call covers intervals.icu + wellness + Hevy),
