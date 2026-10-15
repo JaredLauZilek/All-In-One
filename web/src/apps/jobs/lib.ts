@@ -47,4 +47,3 @@ export const daysSince = (iso: string | null) =>
   iso ? Math.floor((Date.now() - new Date(iso + "T00:00:00").getTime()) / 86400_000) : null;
 export const fmtDay = (iso: string | null) =>
   iso ? new Date(iso + "T00:00:00").toLocaleDateString("en-GB", { day: "numeric", month: "short" }) : "—";
-export const isOverdue = (a: JbApplication) => !!a.next_action_on && STATUS[a.status].open && a.next_action_on < todayISO();

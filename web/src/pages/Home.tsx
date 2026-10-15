@@ -16,13 +16,13 @@ function useHomeStatus() {
         supabase.from("evs_trades").select("status"),
         supabase.from("tr_races").select("name, race_date").eq("status", "upcoming")
           .order("race_date", { ascending: true, nullsFirst: false }).limit(1).maybeSingle(),
-        supabase.from("jb_applications").select("status, next_action_on"),
+        supabase.from("jb_applications").select("status"),
       ]);
       return {
         snap: snap.data as { snapshot_date: string; verdict: string } | null,
         evsTrades: (evs.data ?? []) as { status: string }[],
         race: race.data as { name: string; race_date: string | null } | null,
-        jobs: (jobs.data ?? []) as { status: string; next_action_on: string | null }[],
+        jobs: (jobs.data ?? []) as { status: string }[],
       };
     },
   });
@@ -102,18 +102,12 @@ export default function Home() {
           icon={<Briefcase className="h-6 w-6 text-white" />}
           iconBg="bg-forest-600"
           name="Job Search"
-          description="Every resume sent out, where it stands, and what to follow up on next."
+          description="Every resume sent out and where each application stands."
           status={
             data ? (() => {
               const active = data.jobs.filter((j) => !["saved", "rejected", "withdrawn", "ghosted"].includes(j.status)).length;
-              const today = new Date().toLocaleDateString("en-CA");
-              const overdue = data.jobs.filter((j) => j.next_action_on && j.next_action_on < today && !["rejected", "withdrawn", "ghosted"].includes(j.status)).length;
               const interviewing = data.jobs.filter((j) => j.status === "interview").length;
-              return (
-                <span className={cn("text-xs", overdue ? "font-medium text-amber-700" : "text-slate-400")}>
-                  {active} active · {interviewing} interviewing{overdue ? ` · ${overdue} follow-up${overdue > 1 ? "s" : ""} overdue` : ""}
-                </span>
-              );
+              return <span className="text-xs text-slate-400">{active} active · {interviewing} interviewing</span>;
             })() : (
               <span className="text-xs text-slate-400">Loading…</span>
             )

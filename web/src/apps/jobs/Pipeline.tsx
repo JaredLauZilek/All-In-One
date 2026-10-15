@@ -2,10 +2,10 @@
 // the shared ApplicationModal handles add / edit / timeline / delete.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Briefcase, Plus, Clock, Send, Users, Trophy, Percent, AlertTriangle, ExternalLink, FileText } from "lucide-react";
+import { Briefcase, Plus, Send, Users, Trophy, Percent, ExternalLink, FileText } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, EmptyState, cn } from "../../components/ui";
-import { type JbApplication, STATUS, PIPELINE, CLOSED, daysSince, fmtDay, isOverdue, todayISO } from "./lib";
+import { type JbApplication, STATUS, PIPELINE, CLOSED, daysSince, fmtDay, todayISO } from "./lib";
 import ApplicationModal from "./ApplicationModal";
 
 export function useApplications() {
@@ -33,7 +33,6 @@ export default function Pipeline() {
   const sent = list.filter((a) => a.status !== "saved");
   const responded = sent.filter((a) => !["applied", "ghosted"].includes(a.status));
   const rate = sent.length ? Math.round((responded.length / sent.length) * 100) : null;
-  const overdue = list.filter(isOverdue);
 
   return (
     <div className="space-y-6">
@@ -44,18 +43,6 @@ export default function Pipeline() {
         <StatCard label="Offers" value={offers} accent="bg-amber-50 text-amber-600" icon={<Trophy className="h-5 w-5" />} />
         <StatCard label="Response rate" value={rate != null ? `${rate}%` : "—"} accent="bg-slate-100 text-slate-600" icon={<Percent className="h-5 w-5" />} />
       </div>
-
-      {overdue.length > 0 && (
-        <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
-          <AlertTriangle className="h-4 w-4" />
-          <span className="font-semibold">{overdue.length} follow-up{overdue.length > 1 ? "s" : ""} overdue:</span>
-          {overdue.map((a) => (
-            <button key={a.id} onClick={() => setOpen(a)} className="rounded-full bg-surface px-2.5 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200 hover:ring-amber-400">
-              {a.company} · {a.next_action ?? "follow up"} · {fmtDay(a.next_action_on)}
-            </button>
-          ))}
-        </div>
-      )}
 
       <Card>
         <CardHeader title="Pipeline" subtitle="Click a card to open it · status changes write themselves into the timeline"
@@ -110,11 +97,9 @@ export default function Pipeline() {
 
 function AppCard({ a, onOpen }: { a: JbApplication; onOpen: () => void }) {
   const age = daysSince(a.applied_on);
-  const overdue = isOverdue(a);
   return (
     <button type="button" onClick={onOpen}
-      className={cn("w-full rounded-xl bg-slate-50 p-2.5 text-left transition hover:bg-slate-100 dark:bg-slate-100 dark:hover:bg-slate-200",
-        overdue && "ring-1 ring-amber-300")}>
+      className="w-full rounded-xl bg-slate-50 p-2.5 text-left transition hover:bg-slate-100 dark:bg-slate-100 dark:hover:bg-slate-200">
       <p className="flex items-center gap-1 text-sm font-semibold text-slate-900">
         <span className="truncate">{a.company}</span>
         {a.url && <ExternalLink className="h-3 w-3 shrink-0 text-slate-300" />}
@@ -124,11 +109,6 @@ function AppCard({ a, onOpen }: { a: JbApplication; onOpen: () => void }) {
       <p className="mt-1 font-mono text-[10px] text-slate-400">
         {a.applied_on ? `${fmtDay(a.applied_on)} · ${age}d` : "not sent"}{a.source ? ` · ${a.source}` : ""}{a.resume_version ? ` · ${a.resume_version}` : ""}
       </p>
-      {a.next_action && (
-        <p className={cn("mt-1 flex items-center gap-1 text-[11px]", overdue ? "font-semibold text-amber-700" : "text-slate-500")}>
-          <Clock className="h-3 w-3" /> {a.next_action}{a.next_action_on ? ` · ${fmtDay(a.next_action_on)}` : ""}
-        </p>
-      )}
     </button>
   );
 }

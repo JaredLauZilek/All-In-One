@@ -12,7 +12,8 @@ two tables directly under owner RLS.
 - **`jb_applications`** — one row per application: company, role, location, posting
   `url`, `source` (LinkedIn / referral / …), `status`, `applied_on`, `resume_version`
   (which tailored resume went out — pairs with the resume-builder skill's naming),
-  `salary`, `contact`, `next_action` + `next_action_on` (follow-up reminder), `notes`,
+  `salary`, `notes` (`contact` / `next_action` / `next_action_on` exist in the table but
+  were dropped from the UI 2026-10-15 — Jared didn't want them),
   and (0002) **`resume_path` / `resume_name`** — the PDF actually sent, stored in the
   PRIVATE Storage bucket `jb-resumes` at `<uid>/<application id>/<ts>-<name>` (10 MB,
   PDF only; owner-only storage policies keyed on the first folder = `auth.uid()`).
@@ -31,7 +32,6 @@ two tables directly under owner RLS.
 
 - **Pipeline** (`/jobs`): stat cards (Active · Sent this month · Interviewing · Offers ·
   Response rate = anything past "applied", rejections included, over everything sent),
-  an overdue-follow-ups banner (`next_action_on` < today on an open application),
   a 5-column board (scrolls sideways on phones) and a Closed list. Click a card → modal.
 - **Log** (`/jobs/log`): table with search + status filter and CSV export.
 - **`ApplicationModal.tsx`**: add + edit + timeline + delete, shared by both pages.

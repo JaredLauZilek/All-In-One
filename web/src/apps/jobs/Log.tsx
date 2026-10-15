@@ -3,7 +3,7 @@
 import { useMemo, useState } from "react";
 import { Download, Search, Plus } from "lucide-react";
 import { Button, Card, CardHeader, Input, Select, EmptyState, cn } from "../../components/ui";
-import { type JbApplication, type JbStatus, STATUS, ALL_STATUSES, fmtDay, isOverdue } from "./lib";
+import { type JbApplication, type JbStatus, STATUS, ALL_STATUSES } from "./lib";
 import { useApplications } from "./Pipeline";
 import ApplicationModal from "./ApplicationModal";
 
@@ -18,7 +18,7 @@ export default function Log() {
     [apps, q, status]);
 
   const exportCsv = () => {
-    const cols = ["company", "role", "status", "applied_on", "location", "source", "resume_version", "salary", "contact", "next_action", "next_action_on", "url", "notes"] as const;
+    const cols = ["company", "role", "status", "applied_on", "location", "source", "resume_version", "salary", "url", "notes"] as const;
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const csv = [cols.join(","), ...rows.map((a) => cols.map((c) => esc(a[c])).join(","))].join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -59,7 +59,6 @@ export default function Log() {
                   <th className="px-3 py-2 font-medium">Applied</th>
                   <th className="px-3 py-2 font-medium">Source</th>
                   <th className="px-3 py-2 font-medium">Resume</th>
-                  <th className="px-3 py-2 font-medium">Next action</th>
                   <th className="px-5 py-2 font-medium">Updated</th>
                 </tr>
               </thead>
@@ -72,9 +71,6 @@ export default function Log() {
                     <td className="px-3 py-2.5 font-mono text-xs text-slate-500">{a.applied_on ?? "—"}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-500">{a.source ?? "—"}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-500">{a.resume_version ?? "—"}</td>
-                    <td className={cn("px-3 py-2.5 text-xs", isOverdue(a) ? "font-semibold text-amber-700" : "text-slate-500")}>
-                      {a.next_action ? `${a.next_action}${a.next_action_on ? ` · ${fmtDay(a.next_action_on)}` : ""}` : "—"}
-                    </td>
                     <td className="px-5 py-2.5 font-mono text-xs text-slate-400">{a.updated_at.slice(0, 10)}</td>
                   </tr>
                 ))}
