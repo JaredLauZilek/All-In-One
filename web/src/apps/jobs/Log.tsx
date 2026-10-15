@@ -1,17 +1,18 @@
 // Job Search → Log: every application as a table, with search, a status filter
 // and CSV export. Same modal as the pipeline for editing.
 import { useMemo, useState } from "react";
-import { Download, Search, Plus } from "lucide-react";
+import { Download, Search, Plus, Copy } from "lucide-react";
 import { Button, Card, CardHeader, Input, Select, EmptyState, cn } from "../../components/ui";
 import { type JbApplication, type JbStatus, STATUS, ALL_STATUSES } from "./lib";
 import { useApplications } from "./Pipeline";
-import ApplicationModal from "./ApplicationModal";
+import ApplicationModal, { duplicateTemplate } from "./ApplicationModal";
+type ModalState = { app: JbApplication } | { template: ReturnType<typeof duplicateTemplate> } | "new" | null;
 
 export default function Log() {
   const { data: apps } = useApplications();
   const [q, setQ] = useState("");
   const [status, setStatus] = useState<JbStatus | "">("");
-  const [open, setOpen] = useState<JbApplication | null | "new">(null);
+  const [open, setOpen] = useState<ModalState>(null);
   const rows = useMemo(() => (apps ?? []).filter((a) =>
     (!status || a.status === status) &&
     (!q || `${a.company} ${a.role} ${a.location ?? ""} ${a.source ?? ""} ${a.resume_name ?? ""} ${a.notes ?? ""}`.toLowerCase().includes(q.toLowerCase()))),
@@ -59,19 +60,27 @@ export default function Log() {
                   <th className="px-3 py-2 font-medium">Applied</th>
                   <th className="px-3 py-2 font-medium">Source</th>
                   <th className="px-3 py-2 font-medium">Resume</th>
-                  <th className="px-5 py-2 font-medium">Updated</th>
+                  <th className="px-3 py-2 font-medium">Updated</th>
+                  <th className="px-5 py-2"></th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100">
                 {rows.map((a) => (
-                  <tr key={a.id} onClick={() => setOpen(a)} className="cursor-pointer hover:bg-slate-50">
+                  <tr key={a.id} onClick={() => setOpen({ app: a })} className="group cursor-pointer hover:bg-slate-50">
                     <td className="px-5 py-2.5 font-semibold text-slate-900">{a.company}</td>
                     <td className="px-3 py-2.5 text-slate-700">{a.role}</td>
                     <td className="px-3 py-2.5"><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset", STATUS[a.status].pill)}>{STATUS[a.status].label}</span></td>
                     <td className="px-3 py-2.5 font-mono text-xs text-slate-500">{a.applied_on ?? "—"}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-500">{a.source ?? "—"}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-500">{a.resume_name ?? "—"}</td>
-                    <td className="px-5 py-2.5 font-mono text-xs text-slate-400">{a.updated_at.slice(0, 10)}</td>
+                    <td className="px-3 py-2.5 font-mono text-xs text-slate-400">{a.updated_at.slice(0, 10)}</td>
+                    <td className="px-5 py-2.5 text-right">
+                      <button type="button" title="Duplicate" aria-label="Duplicate"
+                        onClick={(e) => { e.stopPropagation(); setOpen({ template: duplicateTemplate(a) }); }}
+                        className="rounded-full p-1 text-slate-400 opacity-0 hover:bg-slate-200/70 hover:text-slate-700 group-hover:opacity-100">
+                        <Copy className="h-3.5 w-3.5" />
+                      </button>
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -79,7 +88,14 @@ export default function Log() {
           </div>
         )}
       </Card>
-      {open && <ApplicationModal app={open === "new" ? null : open} onClose={() => setOpen(null)} />}
+      {open && (
+        <ApplicationModal
+          key={open === "new" ? "new" : "app" in open ? open.app.id : "dup"}
+          app={open !== "new" && "app" in open ? open.app : null}
+          template={open !== "new" && "template" in open ? open.template : undefined}
+          onClose={() => setOpen(null)}
+          onDuplicate={(a) => setOpen({ template: duplicateTemplate(a) })} />
+      )}
     </div>
   );
 }

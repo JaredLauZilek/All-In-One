@@ -2,11 +2,12 @@
 // the shared ApplicationModal handles add / edit / timeline / delete.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Briefcase, Plus, Send, Users, Trophy, Percent, ExternalLink, FileText } from "lucide-react";
+import { Briefcase, Plus, Send, Users, Trophy, Percent, ExternalLink, FileText, Copy } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, EmptyState, cn } from "../../components/ui";
 import { type JbApplication, STATUS, PIPELINE, CLOSED, daysSince, fmtDay, todayISO } from "./lib";
-import ApplicationModal from "./ApplicationModal";
+import ApplicationModal, { duplicateTemplate } from "./ApplicationModal";
+type ModalState = { app: JbApplication } | { template: ReturnType<typeof duplicateTemplate> } | "new" | null;
 
 export function useApplications() {
   return useQuery({
@@ -22,7 +23,7 @@ export function useApplications() {
 
 export default function Pipeline() {
   const { data: apps } = useApplications();
-  const [open, setOpen] = useState<JbApplication | null | "new">(null);
+  const [open, setOpen] = useState<ModalState>(null);
   const list = apps ?? [];
   const active = list.filter((a) => STATUS[a.status].open && a.status !== "saved");
   const month = todayISO().slice(0, 7);
@@ -62,7 +63,7 @@ export default function Pipeline() {
                       <span className="ml-auto font-mono text-slate-400">{col.length}</span>
                     </p>
                     <div className="space-y-2">
-                      {col.map((a) => <AppCard key={a.id} a={a} onOpen={() => setOpen(a)} />)}
+                      {col.map((a) => <AppCard key={a.id} a={a} onOpen={() => setOpen({ app: a })} onDuplicate={() => setOpen({ template: duplicateTemplate(a) })} />)}
                     </div>
                   </div>
                 );
@@ -78,7 +79,7 @@ export default function Pipeline() {
           <ul className="divide-y divide-slate-100">
             {list.filter((a) => CLOSED.includes(a.status)).map((a) => (
               <li key={a.id}>
-                <button onClick={() => setOpen(a)} className="flex w-full items-center gap-3 px-5 py-2.5 text-left hover:bg-slate-50">
+                <button onClick={() => setOpen({ app: a })} className="flex w-full items-center gap-3 px-5 py-2.5 text-left hover:bg-slate-50">
                   <span className="text-sm font-semibold text-slate-600">{a.company}</span>
                   <span className="truncate text-xs text-slate-400">{a.role}</span>
                   <span className={cn("ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset", STATUS[a.status].pill)}>{STATUS[a.status].label}</span>
@@ -90,17 +91,29 @@ export default function Pipeline() {
         </Card>
       )}
 
-      {open && <ApplicationModal app={open === "new" ? null : open} onClose={() => setOpen(null)} />}
+      {open && (
+        <ApplicationModal
+          key={open === "new" ? "new" : "app" in open ? open.app.id : "dup"}
+          app={open !== "new" && "app" in open ? open.app : null}
+          template={open !== "new" && "template" in open ? open.template : undefined}
+          onClose={() => setOpen(null)}
+          onDuplicate={(a) => setOpen({ template: duplicateTemplate(a) })} />
+      )}
     </div>
   );
 }
 
-function AppCard({ a, onOpen }: { a: JbApplication; onOpen: () => void }) {
+function AppCard({ a, onOpen, onDuplicate }: { a: JbApplication; onOpen: () => void; onDuplicate: () => void }) {
   const age = daysSince(a.applied_on);
   return (
-    <button type="button" onClick={onOpen}
-      className="w-full rounded-xl bg-slate-50 p-2.5 text-left transition hover:bg-slate-100 dark:bg-slate-100 dark:hover:bg-slate-200">
-      <p className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+    <div role="button" tabIndex={0} onClick={onOpen} onKeyDown={(e) => { if (e.key === "Enter") onOpen(); }}
+      className="group relative w-full cursor-pointer rounded-xl bg-slate-50 p-2.5 text-left transition hover:bg-slate-100 dark:bg-slate-100 dark:hover:bg-slate-200">
+      <button type="button" title="Duplicate this application" aria-label="Duplicate"
+        onClick={(e) => { e.stopPropagation(); onDuplicate(); }}
+        className="absolute right-1.5 top-1.5 rounded-full p-1 text-slate-400 opacity-0 transition hover:bg-slate-200/70 hover:text-slate-700 focus:opacity-100 group-hover:opacity-100">
+        <Copy className="h-3.5 w-3.5" />
+      </button>
+      <p className="flex items-center gap-1 pr-6 text-sm font-semibold text-slate-900">
         <span className="truncate">{a.company}</span>
         {a.url && <ExternalLink className="h-3 w-3 shrink-0 text-slate-300" />}
         {a.resume_path && <FileText className="h-3 w-3 shrink-0 text-indigo-500" aria-label="Resume attached" />}
@@ -109,6 +122,6 @@ function AppCard({ a, onOpen }: { a: JbApplication; onOpen: () => void }) {
       <p className="mt-1 font-mono text-[10px] text-slate-400">
         {a.applied_on ? `${fmtDay(a.applied_on)} · ${age}d` : "not sent"}{a.source ? ` · ${a.source}` : ""}
       </p>
-    </button>
+    </div>
   );
 }

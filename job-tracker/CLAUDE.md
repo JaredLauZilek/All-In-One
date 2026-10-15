@@ -34,7 +34,11 @@ two tables directly under owner RLS.
   Response rate = anything past "applied", rejections included, over everything sent),
   a 5-column board (scrolls sideways on phones) and a Closed list. Click a card → modal.
 - **Log** (`/jobs/log`): table with search + status filter and CSV export.
-- **`ApplicationModal.tsx`**: add + edit + timeline + delete, shared by both pages.
+- **`ApplicationModal.tsx`**: add + edit + timeline + delete + **Duplicate** (2026-10-15:
+  a copy icon on each card/row and a button in the modal open a NEW application
+  pre-filled from `duplicateTemplate()` — company, role, location, link, source,
+  salary, notes; status "applied" today; no resume file, no timeline — edit, then Add).
+  Shared by both pages.
   Invalidates `jb-apps` and the Home tile's `home-status`.
 
 ## Deploying
