@@ -30,6 +30,10 @@ export default function Scanner() {
   const [ticker, setTicker] = useState("");
   const [result, setResult] = useState<ScanResult | null>(null);
   const [logged, setLogged] = useState(false);
+  // Verdicts of every ticker scanned this session — stamped on the calendar
+  // pills so Jared can click through a day's reporters and see at a glance
+  // which are playable.
+  const [verdicts, setVerdicts] = useState<Record<string, ScanResult["verdict"]>>({});
 
   const scan = useMutation({
     mutationFn: async (t: string): Promise<ScanResult> => {
@@ -55,7 +59,11 @@ export default function Scanner() {
       if ((data as any)?.error) throw new Error((data as any).error);
       return data as ScanResult;
     },
-    onSuccess: (r) => { setResult(r); setLogged(false); },
+    onSuccess: (r) => {
+      setResult(r); setLogged(false);
+      setVerdicts((v) => ({ ...v, [r.ticker]: r.verdict }));
+      window.scrollTo({ top: 0, behavior: "smooth" }); // the verdict sits right under the search
+    },
   });
 
   const logTrade = useMutation({
@@ -113,10 +121,6 @@ export default function Scanner() {
       {scan.isError && (
         <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{(scan.error as Error).message}</p>
       )}
-
-      {/* Upcoming earnings — click a name to scan it. Always shown, so the page
-          is never empty and the next scan is one click away. */}
-      <EarningsCalendarPanel onPick={(t) => { setTicker(t); scan.mutate(t); }} scanning={scan.isPending ? ticker : null} />
 
       {result && (
         <>
@@ -176,6 +180,11 @@ export default function Scanner() {
           )}
         </>
       )}
+
+      {/* Upcoming earnings — click a name to scan it; the verdict renders ABOVE
+          (under the search) and the pill is stamped with it. Always shown. */}
+      <EarningsCalendarPanel onPick={(t) => { setTicker(t); scan.mutate(t); }}
+        scanning={scan.isPending ? ticker : null} verdicts={verdicts} current={result?.ticker ?? null} />
     </div>
   );
 }
@@ -229,7 +238,14 @@ function Logo({ symbol }: { symbol: string }) {
   );
 }
 
-function EarningsCalendarPanel({ onPick, scanning }: { onPick: (t: string) => void; scanning: string | null }) {
+const VERDICT_PILL: Record<string, string> = {
+  RECOMMEND: "bg-emerald-50 text-emerald-700 ring-1 ring-emerald-200",
+  CONSIDER: "bg-amber-50 text-amber-700 ring-1 ring-amber-200",
+  AVOID: "bg-red-50 text-red-600 ring-1 ring-red-200",
+};
+function EarningsCalendarPanel({ onPick, scanning, verdicts, current }: {
+  onPick: (t: string) => void; scanning: string | null; verdicts: Record<string, string>; current: string | null;
+}) {
   const cal = useQuery({
     queryKey: ["evs-calendar"],
     staleTime: 30 * 60_000,
@@ -247,7 +263,7 @@ function EarningsCalendarPanel({ onPick, scanning }: { onPick: (t: string) => vo
   const todayIso = new Date().toISOString().slice(0, 10);
   return (
     <Card>
-      <CardHeader title="Earnings calendar" subtitle={`Next 14 days · US names with revenue estimates ≥ $1B · click to scan${cal.data ? ` · ${cal.data.source.split(" · ")[0]}` : ""}`} />
+      <CardHeader title="Earnings calendar" subtitle={`Next 14 days · US names with revenue estimates ≥ $1B · click a name to run the three filters — the verdict shows above and stays on the pill${cal.data ? ` · ${cal.data.source.split(" · ")[0]}` : ""}`} />
       {cal.isPending && <p className="px-5 py-6 text-sm text-slate-400">Loading upcoming earnings…</p>}
       {cal.isError && <p className="mx-5 my-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{(cal.error as Error).message}</p>}
       {cal.data && cal.data.days.length === 0 && (
@@ -265,10 +281,17 @@ function EarningsCalendarPanel({ onPick, scanning }: { onPick: (t: string) => vo
                   <button key={e.symbol} type="button" onClick={() => onPick(e.symbol)}
                     title={`${e.symbol}${e.hour ? ` · ${HOUR_TAG[e.hour] ?? e.hour}` : ""}${e.revenueEstimate ? ` · rev est $${(e.revenueEstimate / 1e9).toFixed(1)}B` : ""}${e.epsEstimate != null ? ` · EPS est ${e.epsEstimate}` : ""}`}
                     className={cn("flex items-center gap-2 rounded-full border border-slate-200/70 bg-surface py-1 pl-1 pr-3 text-xs font-semibold text-slate-800 transition hover:border-slate-300 hover:bg-slate-50",
-                      scanning === e.symbol && "ring-2 ring-indigo-500")}>
+                      scanning === e.symbol && "ring-2 ring-indigo-500", current === e.symbol && "border-slate-400")}>
                     <Logo symbol={e.symbol} />
                     <span className="font-mono">{e.symbol}</span>
                     {e.hour && <span className="font-normal text-slate-400">{HOUR_TAG[e.hour] ?? e.hour}</span>}
+                    {scanning === e.symbol ? (
+                      <span className="rounded-full bg-slate-100 px-1.5 py-0.5 text-[10px] font-semibold text-slate-500">scanning…</span>
+                    ) : verdicts[e.symbol] ? (
+                      <span className={cn("rounded-full px-1.5 py-0.5 text-[10px] font-semibold", VERDICT_PILL[verdicts[e.symbol]])}>
+                        {verdicts[e.symbol] === "RECOMMEND" ? "Recommend" : verdicts[e.symbol] === "CONSIDER" ? "Consider" : "Avoid"}
+                      </span>
+                    ) : null}
                   </button>
                 ))}
               </div>
