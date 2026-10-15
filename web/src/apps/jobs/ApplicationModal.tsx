@@ -19,7 +19,8 @@ const EMPTY: Draft = {
 /* Upload the PDF to the private bucket and point the row at it (replacing any
    previous file). Path = <uid>/<application id>/<timestamp>-<filename>. */
 async function attachResume(appId: string, file: File, previousPath: string | null) {
-  const uid = (await supabase.auth.getUser()).data.user!.id;
+  const uid = (await supabase.auth.getSession()).data.session?.user.id;
+  if (!uid) throw new Error("Not signed in");
   const safe = file.name.replace(/[^\w.-]+/g, "_");
   const path = `${uid}/${appId}/${Date.now()}-${safe}`;
   const { error } = await supabase.storage.from(RESUME_BUCKET).upload(path, file, { contentType: "application/pdf", upsert: false });
@@ -29,14 +30,17 @@ async function attachResume(appId: string, file: File, previousPath: string | nu
   if (previousPath) await supabase.storage.from(RESUME_BUCKET).remove([previousPath]);
 }
 const clean = (d: Draft): Draft => ({
-  ...d,
+  company: d.company.trim(), role: d.role.trim(), status: d.status, resume_version: d.resume_version || null,
+  contact: d.contact || null, next_action: d.next_action || null, next_action_on: d.next_action_on || null,
   location: d.location || null, url: d.url || null, source: d.source || null, applied_on: d.applied_on || null,
   resume_version: d.resume_version || null, salary: d.salary || null, contact: d.contact || null,
   next_action: d.next_action || null, next_action_on: d.next_action_on || null, notes: d.notes || null,
 });
 
-export function invalidateJobs(qc: ReturnType<typeof useQueryClient>) {
-  qc.invalidateQueries({ queryKey: ["jb-apps"] });
+/* Refetch the list NOW (not on the 30 s poll) — awaited by callers before they
+   close the modal, so the board already shows the change when it reappears. */
+export async function invalidateJobs(qc: ReturnType<typeof useQueryClient>) {
+  await qc.refetchQueries({ queryKey: ["jb-apps"], type: "all" });
   qc.invalidateQueries({ queryKey: ["home-status"] });
 }
 
@@ -79,7 +83,7 @@ export default function ApplicationModal({ app, template, onClose, onDuplicate }
       const { error } = await supabase.from("jb_applications").update({ resume_path: null, resume_name: null }).eq("id", app.id);
       if (error) throw error;
     },
-    onSuccess: () => { invalidateJobs(qc); onClose(); },
+    onSuccess: async () => { await invalidateJobs(qc); onClose(); },
   });
 
   const save = useMutation({
@@ -105,11 +109,11 @@ export default function ApplicationModal({ app, template, onClose, onDuplicate }
         }
       }
     },
-    onSuccess: () => { invalidateJobs(qc); onClose(); },
+    onSuccess: async () => { await invalidateJobs(qc); onClose(); },
   });
   const remove = useMutation({
     mutationFn: async () => { const { error } = await supabase.from("jb_applications").delete().eq("id", app!.id); if (error) throw error; },
-    onSuccess: () => { invalidateJobs(qc); onClose(); },
+    onSuccess: async () => { await invalidateJobs(qc); onClose(); },
   });
 
   const onSubmit = (e: FormEvent) => { e.preventDefault(); if (d.company.trim() && d.role.trim()) save.mutate(); };
@@ -160,7 +164,11 @@ export default function ApplicationModal({ app, template, onClose, onDuplicate }
           {field("Salary / range", <Input value={d.salary ?? ""} onChange={(e) => set("salary", e.target.value)} placeholder="e.g. RM 12–15k" />)}
           {field("Notes", <Textarea rows={3} value={d.notes ?? ""} onChange={(e) => set("notes", e.target.value)} placeholder="JD highlights, who referred you, interview prep…" />, true)}
         </div>
-        {(save.isError || remove.isError) && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">{String(save.error ?? remove.error)}</p>}
+        {(save.isError || remove.isError) && (
+          <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-700">
+            {((save.error ?? remove.error) as { message?: string })?.message ?? String(save.error ?? remove.error)}
+          </p>
+        )}
         <div className="flex items-center justify-between gap-2">
           <div className="flex items-center gap-2">
             {editing && (
@@ -210,7 +218,7 @@ function Timeline({ app }: { app: JbApplication }) {
       if (error) throw error;
       await supabase.from("jb_applications").update({ updated_at: new Date().toISOString() }).eq("id", app.id);
     },
-    onSuccess: () => { setNotes(""); qc.invalidateQueries({ queryKey: ["jb-events", app.id] }); invalidateJobs(qc); },
+    onSuccess: () => { setNotes(""); qc.invalidateQueries({ queryKey: ["jb-events", app.id] }); void invalidateJobs(qc); },
   });
   const del = useMutation({
     mutationFn: async (id: string) => { const { error } = await supabase.from("jb_events").delete().eq("id", id); if (error) throw error; },
