@@ -129,3 +129,10 @@
 body {
   @apply antialiased text-slate-800 bg-slate-50;
 }
+
+/* Login keypad: wrong-passcode wobble (used as animate-[shake_0.4s]). */
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20%, 60% { transform: translateX(-6px); }
+  40%, 80% { transform: translateX(6px); }
+}

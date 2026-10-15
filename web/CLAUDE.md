@@ -70,23 +70,26 @@ web/
   entry, a tile in `Home.tsx`, and (if it uses services) entries in
   `Infrastructure.tsx` `SERVICES`.
 
-## Auth — the whole app is behind one passwordless login
+## Auth — the whole app is behind one passcode
 
 Everything (including the Financial Desk, which previously had no auth) sits behind the
 Supabase Auth session. One client in `lib/supabase.ts` uses the **publishable key**; all
 queries run as the `authenticated` role.
 
-- **Login is dual-mode; password is the DEV default.** `Login.tsx` has both a password
-  form (`signInWithPassword`) and the passwordless flow (`signInWithOtp` →
-  `verifyOtp(type: "email")` — 6-digit code, or the magic link in the same email), with
-  a toggle between them. `DEFAULT_MODE` at the top of the file is `"password"` while the
-  app is undeployed (Jared's dev preference) — **flip it to `"otp"` at go-live**; that
-  one constant is the whole switch. In the OTP flow, **`shouldCreateUser: false` is
-  load-bearing**: it's what makes a stranger's email bounce ("That email doesn't have
-  access") instead of minting an account. Keep **"Allow new users to sign up" OFF** in
-  the Supabase dashboard too — the client flag only guards THIS app's calls, not the raw
-  auth API. There is no change-password UI; passwords are
-  managed in the Supabase dashboard (Auth → Users) if needed.
+- **Login is a 4-digit passcode** (2026-10-15, Jared: "remove the login email and
+  password, ask for a passcode instead"). `Login.tsx` is a keypad (taps or physical
+  keys); the 4th digit auto-submits `{ passcode }` to the edge function
+  **`aio-passcode`** (`web/supabase/functions/`, `verify_jwt: false`), which compares
+  its sha256 against `aio_private` (service-role-only table: RLS on, no policies —
+  `web/supabase/migrations/0001_aio_passcode.sql`) and on a match mints a one-shot
+  magic-link token for the SOLE auth user (`auth.admin.generateLink`). The client
+  redeems it with `auth.verifyOtp({ token_hash, type: "magiclink" })` → a normal
+  Supabase session, so RLS / owner checks / the auth listener in `App.tsx` are
+  unchanged — only the front door is. Brute-force guard: 5 wrong codes → 15-minute
+  lockout (global; single-user app). **Change the passcode** with one SQL statement
+  (comment at the top of the migration); no UI for it on purpose. The old
+  email/password + email-OTP forms are gone; the account still exists in Supabase Auth
+  (dashboard → Auth → Users) and "Allow new users to sign up" must stay OFF.
 - Magic-link clicks redirect to the project's **Site URL** (Supabase dashboard → Auth →
   URL Configuration) — set it to the deployed Vercel URL or the link lands on the wrong
   host. The code path works regardless.

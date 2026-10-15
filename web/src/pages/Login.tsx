@@ -1,157 +1,115 @@
-import { useState, type FormEvent } from "react";
-import { Boxes, MailCheck } from "lucide-react";
+import { useEffect, useRef, useState } from "react";
+import { Boxes, Delete, Lock } from "lucide-react";
 import { supabase } from "../lib/supabase";
-import { Button, Input, Card } from "../components/ui";
+import { Card } from "../components/ui";
 
-// Passwordless login: email → 6-digit code (or tap the magic link in the same
-// email). shouldCreateUser: false is the security half of this — a stranger
-// with the URL who types their own email gets rejected instead of a fresh
-// account. Keep "allow new sign-ups" OFF in the Supabase dashboard too, so the
-// raw auth API can't mint accounts either.
-const LAST_EMAIL_KEY = "aio:last-email";
-
-// DEV MODE: password sign-in is shown by default while the app isn't deployed
-// yet (Jared's preference). At go-live, flip this to "otp" — both modes stay
-// available behind the toggle either way. The OTP *code* path works even
-// undeployed; only the clickable magic link needs the Site URL configured.
-const DEFAULT_MODE: "password" | "otp" = "password";
+// Passcode login (2026-10-15, replaces the email/password + OTP forms). The code
+// is checked by the `aio-passcode` edge function — never in the browser — which
+// returns a one-shot magic-link token for the account; verifyOtp turns it into
+// the normal Supabase session, so RLS and the auth listener in App.tsx are
+// untouched. Wrong codes count towards a 15-minute lockout server-side.
+const LENGTH = 4;
 
 export default function Login() {
-  const [mode, setMode] = useState<"password" | "otp">(DEFAULT_MODE);
-  const [email, setEmail] = useState(() => localStorage.getItem(LAST_EMAIL_KEY) ?? "");
-  const [password, setPassword] = useState("");
-  const [code, setCode] = useState("");
-  const [sent, setSent] = useState(false);
+  const [digits, setDigits] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [shake, setShake] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
 
-  async function signInPassword(e: FormEvent) {
-    e.preventDefault();
+  async function submit(code: string) {
     setLoading(true);
     setError(null);
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    setLoading(false);
-    if (error) setError(error.message);
-    else localStorage.setItem(LAST_EMAIL_KEY, email);
-  }
-
-  async function sendCode(e: FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    const { error } = await supabase.auth.signInWithOtp({
-      email,
-      options: { shouldCreateUser: false },
+    const { data, error } = await supabase.functions.invoke<{ token_hash?: string; error?: string }>("aio-passcode", {
+      body: { passcode: code },
     });
-    setLoading(false);
-    if (error) {
-      // Supabase words the unknown-email rejection as a signup problem; say
-      // something truthful but less confusing for the one real user.
-      setError(/signup/i.test(error.message) ? "That email doesn't have access." : error.message);
+    // invoke() surfaces non-2xx as FunctionsHttpError with the body on context.
+    let message = data?.error ?? null;
+    if (error && !message) {
+      try { message = (await (error as { context?: Response }).context?.json())?.error ?? null; } catch { /* ignore */ }
+      message ??= error.message;
+    }
+    if (message || !data?.token_hash) {
+      setLoading(false);
+      setError(message ?? "Could not sign in.");
+      setDigits("");
+      setShake(true);
+      setTimeout(() => setShake(false), 400);
       return;
     }
-    localStorage.setItem(LAST_EMAIL_KEY, email);
-    setSent(true);
-  }
-
-  async function verifyCode(e: FormEvent) {
-    e.preventDefault();
-    setLoading(true);
-    setError(null);
-    const { error } = await supabase.auth.verifyOtp({ email, token: code.trim(), type: "email" });
+    const { error: vErr } = await supabase.auth.verifyOtp({ token_hash: data.token_hash, type: "magiclink" });
     setLoading(false);
-    if (error) setError(error.message);
+    if (vErr) { setError(vErr.message); setDigits(""); }
     // On success the auth listener in App.tsx swaps this screen out.
   }
 
+  function press(d: string) {
+    if (loading || digits.length >= LENGTH) return;
+    const next = digits + d;
+    setDigits(next);
+    setError(null);
+    if (next.length === LENGTH) void submit(next);
+  }
+  const backspace = () => { if (!loading) setDigits((s) => s.slice(0, -1)); };
+
+  // Physical keyboard support (desktop) via a hidden input that stays focused.
+  useEffect(() => { inputRef.current?.focus(); }, [loading]);
+  function onKey(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (/^\d$/.test(e.key)) { e.preventDefault(); press(e.key); }
+    else if (e.key === "Backspace") { e.preventDefault(); backspace(); }
+  }
+
+  const keys = ["1", "2", "3", "4", "5", "6", "7", "8", "9", "", "0", "⌫"];
+
   return (
-    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4">
-      <div className="w-full max-w-sm">
+    <div className="flex min-h-screen items-center justify-center bg-slate-50 p-4 safe-top safe-bottom" onClick={() => inputRef.current?.focus()}>
+      <div className="w-full max-w-xs">
         <div className="mb-6 flex flex-col items-center">
           <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-accent shadow-lg shadow-accent/40">
             <Boxes className="h-6 w-6 text-ink" />
           </div>
           <h1 className="mt-4 text-xl font-extrabold tracking-tight text-slate-900">All-In-One</h1>
-          <p className="mt-1 text-sm text-slate-500">Your personal tools, one place</p>
+          <p className="mt-1 flex items-center gap-1.5 text-sm text-slate-500"><Lock className="h-3.5 w-3.5" /> Enter your passcode</p>
         </div>
         <Card className="p-6">
-          {mode === "password" ? (
-            <form onSubmit={signInPassword} className="space-y-4">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600">Email</label>
-                <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="you@example.com" autoFocus={!email} required />
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600">Password</label>
-                <Input type="password" value={password} onChange={(e) => setPassword(e.target.value)} placeholder="••••••••" required />
-              </div>
-              {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>}
-              <Button type="submit" loading={loading} className="w-full">Sign in</Button>
-              <button
-                type="button"
-                onClick={() => { setMode("otp"); setError(null); }}
-                className="w-full text-center text-xs font-medium text-slate-500 hover:text-slate-700"
-              >
-                Email me a login code instead
-              </button>
-            </form>
-          ) : !sent ? (
-            <form onSubmit={sendCode} className="space-y-4">
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600">Email</label>
-                <Input
-                  type="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  placeholder="you@example.com"
-                  autoFocus={!email}
-                  required
-                />
-              </div>
-              {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>}
-              <Button type="submit" loading={loading} className="w-full">Email me a login code</Button>
-              <button
-                type="button"
-                onClick={() => { setMode("password"); setSent(false); setError(null); }}
-                className="w-full text-center text-xs font-medium text-slate-500 hover:text-slate-700"
-              >
-                Use a password instead
-              </button>
-            </form>
-          ) : (
-            <form onSubmit={verifyCode} className="space-y-4">
-              <div className="flex items-start gap-2.5 rounded-lg bg-indigo-50 px-3 py-2.5">
-                <MailCheck className="mt-0.5 h-4 w-4 shrink-0 text-indigo-600" />
-                <p className="text-xs leading-relaxed text-indigo-900">
-                  Code sent to <b>{email}</b>. Enter it below — or just tap the sign-in link in the same email.
-                </p>
-              </div>
-              <div>
-                <label className="mb-1.5 block text-xs font-medium text-slate-600">6-digit code</label>
-                <Input
-                  inputMode="numeric"
-                  autoComplete="one-time-code"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value)}
-                  placeholder="123456"
-                  className="text-center font-mono text-lg tracking-[0.4em]"
-                  autoFocus
-                  required
-                />
-              </div>
-              {error && <p className="rounded-lg bg-red-50 px-3 py-2 text-xs text-red-600">{error}</p>}
-              <Button type="submit" loading={loading} disabled={code.trim().length < 6} className="w-full">
-                Sign in
-              </Button>
-              <button
-                type="button"
-                onClick={() => { setSent(false); setCode(""); setError(null); }}
-                className="w-full text-center text-xs font-medium text-slate-500 hover:text-slate-700"
-              >
-                Use a different email / resend
-              </button>
-            </form>
-          )}
+          <input
+            ref={inputRef}
+            inputMode="numeric"
+            autoComplete="off"
+            aria-label="Passcode"
+            value={digits}
+            onChange={() => { /* controlled via onKeyDown */ }}
+            onKeyDown={onKey}
+            className="absolute h-0 w-0 opacity-0"
+            autoFocus
+          />
+          <div className={`mb-6 flex justify-center gap-4 ${shake ? "animate-[shake_0.4s]" : ""}`}>
+            {Array.from({ length: LENGTH }).map((_, i) => (
+              <span
+                key={i}
+                className={`h-3.5 w-3.5 rounded-full border-2 transition ${
+                  i < digits.length ? "border-ink bg-ink dark:border-accent dark:bg-accent" : "border-slate-300"
+                } ${loading ? "animate-pulse" : ""}`}
+              />
+            ))}
+          </div>
+          <div className="grid grid-cols-3 gap-3">
+            {keys.map((k, i) =>
+              k === "" ? <span key={i} /> : (
+                <button
+                  key={i}
+                  type="button"
+                  disabled={loading}
+                  onClick={(e) => { e.stopPropagation(); k === "⌫" ? backspace() : press(k); }}
+                  className="flex h-14 items-center justify-center rounded-full bg-slate-100 text-xl font-semibold text-slate-900 transition active:scale-95 active:bg-slate-200 disabled:opacity-50"
+                  aria-label={k === "⌫" ? "Delete" : k}
+                >
+                  {k === "⌫" ? <Delete className="h-5 w-5" /> : k}
+                </button>
+              ),
+            )}
+          </div>
+          <p className={`mt-4 min-h-[1.25rem] text-center text-xs ${error ? "text-red-600" : "text-transparent"}`}>{error ?? "·"}</p>
         </Card>
       </div>
     </div>
