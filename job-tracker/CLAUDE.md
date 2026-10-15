@@ -4,8 +4,8 @@ Backend home of the **Job Search** mini-app — Jared's tracker for the resumes 
 out and where each application stands. The frontend lives in the unified app at
 `web/src/apps/jobs/` (Pipeline / Log under `/jobs`); this folder holds the migration
 ledger. **Everything this app owns is prefixed `jb_`** (siblings: `fin_`, `evs_`,
-`tr_` — never touch theirs). No edge functions, no secrets: the browser talks to the
-two tables directly under owner RLS.
+`tr_` — never touch theirs). The browser talks to the tables directly under owner
+RLS; the one edge function (`jb-mcp`) is the Claude connector, see below.
 
 ## What this is
 
@@ -45,8 +45,33 @@ two tables directly under owner RLS.
   Shared by both pages.
   Invalidates `jb-apps` and the Home tile's `home-status`.
 
+## Claude connector (`jb-mcp`, 2026-10-15)
+
+A remote **MCP server** so claude.ai (or any MCP client) can read, write and
+summarise the tracker with purpose-built tools — Jared adds it as a **custom
+connector** in claude.ai, independent of the Supabase connector he switches between
+projects. Source: `supabase/functions/jb-mcp/index.ts`.
+
+- Transport: MCP Streamable HTTP — one endpoint, JSON-RPC 2.0 over POST, plain JSON
+  replies (`initialize`, `ping`, `tools/list`, `tools/call`; notifications → 202).
+- URL: `https://vjqbircarzxcxrdzlyxj.supabase.co/functions/v1/jb-mcp?key=<mcp_key>`.
+  Deployed **`verify_jwt: false`** (claude.ai can't send a Supabase JWT). The key lives
+  in **`jb_private`** (0004: one row, RLS on, NO policies → service role only; the value
+  was inserted out-of-band and is never committed). Rotate = `update jb_private set
+  mcp_key = '<new>' where id = 1` and re-enter the URL in claude.ai (the function caches
+  the key per isolate — a rotation takes effect on the next cold start, minutes at most).
+- Writes are pinned to the sole auth user (admin `listUsers`), never a caller-supplied id.
+- Tools: `pipeline_summary` · `list_applications` · `get_application` ·
+  `add_application` · `update_application` · `set_status` · `log_event`. **No delete**
+  on purpose. Status changes log the matching event, same rule as the app.
+- Add in claude.ai: Settings → Connectors → **Add custom connector** → name
+  "Job Search", paste the URL (with `?key=…`), no OAuth → Add. Then enable it in a
+  chat (the connectors toggle) and e.g. "search my Gmail for replies from Stripe and
+  update the Stripe application".
+
 ## Deploying
 
-- Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001–0003 applied
-  live 2026-10-15). Next migration: `0004_`.
+- Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001–0004 applied
+  live 2026-10-15). Next migration: `0005_`.
+- Edge function: MCP `deploy_edge_function` (`jb-mcp`, **`verify_jwt: false`** — key-guarded).
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).
