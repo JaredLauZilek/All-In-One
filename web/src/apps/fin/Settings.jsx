@@ -23,7 +23,7 @@ function LevelsCard({ cfg, reload, prices }) {
   const [entry, setEntry] = useState(cfg?.entry_levels || {});
   const [watch, setWatch] = useState(cfg?.watch_levels || {});
   const [saving, setSaving] = useState(false);
-  const tickers = cfg?.tickers || ["MU", "SNDK", "WDC", "DRAM"];
+  const tickers = cfg?.tickers || ["005930.KS", "000660.KS", "MU", "SNDK", "688825.SS"];
 
   async function saveLevels() {
     setSaving(true);

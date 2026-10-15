@@ -12,13 +12,16 @@
 // not added: SK Hynix's (HXSCL/HXSCY/SKHYF) return no data at all, and
 // Samsung's (SSNLF) is stale to the point of being wrong (price == prevClose
 // == 52w high). Don't "helpfully" add them back without checking a live quote.
+// Basket since 2026-10-15 (Jared): Samsung, SK Hynix, Micron, SanDisk, CXMT.
+// WDC and the DRAM ETF were dropped. CXMT (ChangXin Memory) is the Shanghai
+// STAR listing 688825.SS (IPO'd 2026-07-27) — Yahoo prices it in CNY; Finnhub's
+// free tier returns nothing for it, same as the Korean names.
 export const NAMES = {
   MU: "Micron Technology",
   SNDK: "SanDisk",
-  WDC: "Western Digital",
-  DRAM: "Roundhill Memory ETF",
   "000660.KS": "SK Hynix · Seoul",
   "005930.KS": "Samsung Electronics · Seoul",
+  "688825.SS": "CXMT · Shanghai",
 };
 
 // Prices are shown in each listing's OWN currency — there is no FX conversion

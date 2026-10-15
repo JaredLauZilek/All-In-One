@@ -5,7 +5,14 @@ sync when architecture, secrets, or deploy steps change.
 
 ## What this is
 
-A single-user daily monitoring cockpit for the memory-stock cycle (MU, SNDK, WDC, DRAM).
+A single-user daily monitoring cockpit for the memory-stock cycle. **Basket since
+2026-10-15: Samsung (005930.KS), SK Hynix (000660.KS), Micron (MU), SanDisk (SNDK),
+CXMT (688825.SS — ChangXin Memory, Shanghai STAR, IPO 2026-07-27, priced in CNY via
+Yahoo).** WDC and the DRAM ETF were dropped that day (`fin_app_config.tickers`, and
+their keys removed from peaks / entry_levels / watch_levels). CXMT has NO entry/watch
+levels yet — set them in Settings (in CNY). The edge function's hard-coded fallback
+list still says MU/SNDK/WDC/DRAM but is only used when `fin_app_config.tickers` is
+null, which it never is.
 A React SPA reads one pre-computed verdict per day from Supabase; a Deno edge function
 computes that verdict once a day from Finnhub quotes + hand-logged DDR5 contract prices.
 Owner: jared@voltara.com.my.
