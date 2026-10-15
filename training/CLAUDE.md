@@ -42,7 +42,13 @@ Jared's training hub for Hyrox, half/full marathons and (later) half/full Ironma
   0007): the new title goes to `tr_workouts.custom_name`, which tr-sync NEVER writes
   (its upsert payload omits it), so renames survive every sync while `name` keeps
   being rewritten from the source. Display everywhere = `custom_name ?? name`;
-  empty input clears the rename. **Clicking a lift card opens a set-by-set popup**
+  empty input clears the rename. **Cards can be deleted** (hover → trash, 0013,
+  2026-10-15): a real DELETE would come back on the next sync (the 45-day window is
+  re-upserted), so delete = `hidden_at = now()` — a column tr-sync never writes — and
+  the Activities + Overview queries filter `hidden_at is null`. Nothing is written
+  back to Hevy / intervals.icu. (Edge fns that read tr_workouts — tr-plan-chat,
+  tr-plan-week, the bot — still see hidden rows; add the filter there if it matters.)
+  **Clicking a lift card opens a set-by-set popup**
   (`LiftDetail`: tiles for time / working sets / reps / volume, then per exercise a
   table of weight × reps with W/D/F tags for warm-up / drop / failure sets and BW for
   bodyweight). **Clicking a run (any intervals.icu activity) opens a run popup**
@@ -310,7 +316,8 @@ Google refresh token (once): Cloud Console → enable Calendar API → OAuth cli
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
   2026-09-05; 0007 `custom_name`, 0008 `tr_wellness.steps`, 0009 `tr_workouts.detail`,
   0010 `tr_bot_proposals`, 0011 `tr_hevy_exercises` applied 2026-09-07; 0012
-  `tr_plan_weeks.target_km` applied 2026-09-17). Next migration: `0013_`.
+  `tr_plan_weeks.target_km` applied 2026-09-17; 0013 `tr_workouts.hidden_at` applied
+  2026-10-15). Next migration: `0014_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).
 
 ## Gotchas

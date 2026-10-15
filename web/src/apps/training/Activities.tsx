@@ -5,7 +5,7 @@
 // gym vs cardio totals with %-change against the previous week.
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
-import { CalendarRange, RefreshCw, Pencil } from "lucide-react";
+import { CalendarRange, RefreshCw, Pencil, Trash2 } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, EmptyState, Modal, cn } from "../../components/ui";
 import { type TrWorkout, type TrWellness, type HevySet, type HevyExercise, hevyExercises, workingSets, tonnageKg, dedupeGymShadows, GYM_SPORTS, SPORT_EMOJI, localISO, addDaysISO, mondayOf, DAY_NAMES, useHrZoneVersions } from "./lib";
@@ -79,6 +79,7 @@ export default function Activities() {
     queryFn: async () => {
       const oldest = addDaysISO(mondayOf(), -7 * (WEEKS_SHOWN - 1));
       const { data, error } = await supabase.from("tr_workouts").select("*")
+        .is("hidden_at", null) // app-side deletes (0013) stay out of every view
         .gte("started_at", oldest + "T00:00:00+08:00").order("started_at");
       if (error) throw error;
       return dedupeGymShadows(data as TrWorkout[]);
@@ -674,6 +675,18 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
     },
   });
   const startEdit = () => { setDraft(shown); setEditing(true); };
+  // "Delete" = hide (hidden_at). A real delete would come back on the next sync.
+  // Nothing is written to intervals.icu / Hevy.
+  const hide = useMutation({
+    mutationFn: async () => {
+      const { error } = await supabase.from("tr_workouts").update({ hidden_at: new Date().toISOString() }).eq("id", w.id);
+      if (error) throw error;
+    },
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: ["tr-activities"] });
+      qc.invalidateQueries({ queryKey: ["tr-week"] });
+    },
+  });
   const commit = () => { setEditing(false); if (draft.trim() !== shown) rename.mutate(draft); };
   // Custom zone seconds (bucketed by tr-sync from the raw HR stream against
   // Jared's dated zone versions — real columns) win; the intervals.icu model
@@ -712,15 +725,26 @@ function ActivityCard({ w, customOnly }: { w: TrWorkout; customOnly: boolean }) 
       title={hasLiftDetail ? "Click for set-by-set detail" : hasRunDetail ? "Click for HR / pace / laps" : undefined}
     >
       {!editing && (
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); startEdit(); }}
-          aria-label="Rename"
-          title="Rename"
-          className="absolute right-1.5 top-1.5 rounded-full p-1 text-slate-400 opacity-0 transition hover:bg-slate-200/70 hover:text-slate-700 focus:opacity-100 group-hover:opacity-100"
-        >
-          <Pencil className="h-3 w-3" />
-        </button>
+        <div className="absolute right-1.5 top-1.5 flex gap-0.5 opacity-0 transition focus-within:opacity-100 group-hover:opacity-100">
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); startEdit(); }}
+            aria-label="Rename"
+            title="Rename"
+            className="rounded-full p-1 text-slate-400 hover:bg-slate-200/70 hover:text-slate-700"
+          >
+            <Pencil className="h-3 w-3" />
+          </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); if (confirm(`Remove "${shown}" from the app? It stays on ${w.source === "hevy" ? "Hevy" : "intervals.icu"}.`)) hide.mutate(); }}
+            aria-label="Delete"
+            title="Remove from the app (not from Hevy / intervals.icu)"
+            className="rounded-full p-1 text-slate-400 hover:bg-red-50 hover:text-red-500"
+          >
+            <Trash2 className="h-3 w-3" />
+          </button>
+        </div>
       )}
       {editing ? (
         <input

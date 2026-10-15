@@ -42,6 +42,7 @@ function useWeekData(weekStart: string) {
         supabase.from("tr_plan_weeks").select("*").order("week_start"),
         // enough history for the 8-week charts and the 10-week progression bars
         supabase.from("tr_workouts").select("*")
+          .is("hidden_at", null) // app-side deletes (0013)
           .gte("started_at", addDaysISO(weekStart, -7 * 11) + "T00:00:00+08:00")
           .order("started_at", { ascending: false }),
       ]);
