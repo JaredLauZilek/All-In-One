@@ -17,6 +17,17 @@
    by re-declaring the theme tokens under .dark below — same remap trick. */
 @custom-variant dark (&:where(.dark, .dark *));
 
+/* iPhone home-screen app: content extends under the notch / home indicator
+   (viewport-fit=cover). These pad the sticky header and the page bottom by the
+   device's safe-area insets; in a normal browser tab the insets are 0. */
+.safe-top { padding-top: env(safe-area-inset-top, 0px); }
+.safe-bottom { padding-bottom: calc(3rem + env(safe-area-inset-bottom, 0px)); }
+/* standalone mode: no browser chrome, so stop the rubber-band overscroll glow
+   from bleeding the canvas colour and keep text sizes stable in landscape */
+@media (display-mode: standalone) {
+  html { overscroll-behavior-y: none; -webkit-text-size-adjust: 100%; }
+}
+
 @theme {
   --font-sans: "Plus Jakarta Sans", "Inter", ui-sans-serif, system-ui, sans-serif;
 

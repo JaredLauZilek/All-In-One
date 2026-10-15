@@ -169,7 +169,7 @@ export default function Layout({ email }: { email: string }) {
   return (
     <div className="min-h-screen">
       {/* ---------- top bar ---------- */}
-      <header className="sticky top-0 z-30 bg-slate-50/85 backdrop-blur">
+      <header className="safe-top sticky top-0 z-30 bg-slate-50/85 backdrop-blur">
         <div className="mx-auto flex max-w-[1440px] items-center gap-3 px-4 py-3.5 sm:px-8">
           <NavLink to="/" className="flex items-center gap-2.5">
             <span className="flex h-10 w-10 items-center justify-center rounded-2xl bg-accent shadow-sm">
@@ -213,7 +213,7 @@ export default function Layout({ email }: { email: string }) {
       </header>
 
       {/* ---------- body: floating rail + content ---------- */}
-      <div className="mx-auto flex max-w-[1440px] items-start gap-6 px-4 pb-12 pt-4 sm:px-8">
+      <div className="safe-bottom mx-auto flex max-w-[1440px] items-start gap-6 px-4 pt-4 sm:px-8">
         {/* Reference-style rail: theme pill on top, sections, sign-out pill at
             the bottom — three separate floating pills. */}
         <aside className="sticky top-24 hidden shrink-0 flex-col gap-3 md:flex">

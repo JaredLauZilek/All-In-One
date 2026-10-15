@@ -213,6 +213,35 @@ reflow instead of scroll on phones (see the fin Settings levels editor: stacked
 per-ticker blocks below `sm`, table from `sm` up). Stat-card grids go `grid-cols-2`
 on phones, never a stack of four full-width cards.
 
+## iPhone: installable web app (PWA, 2026-10-15)
+
+Jared runs the app on his iPhone as a home-screen web app (Safari → Share → **Add to
+Home Screen**) — no App Store, no Apple developer account. The plumbing:
+
+- `vite-plugin-pwa` in `vite.config.ts` generates the manifest (standalone, portrait,
+  lime icons from `public/icons/`, canvas-coloured splash) and a Workbox service
+  worker that precaches ONLY the built shell and auto-updates on the next open.
+  Supabase REST/auth/functions traffic is never cached — data always needs the network.
+- `index.html`: `viewport-fit=cover`, `theme-color` (light/dark), the
+  `apple-mobile-web-app-*` tags and `/apple-touch-icon.png` (Apple ignores the
+  manifest's icons — the touch icon must be an opaque square PNG).
+- Safe areas: `.safe-top` on the sticky header and `.safe-bottom` on the page
+  container (`index.css`) pad by `env(safe-area-inset-*)`; zero in a normal tab.
+- The installed app keeps its own storage → log in once there. Pull-to-refresh is
+  gone in standalone mode (Sync buttons / re-open cover it).
+- Icons are generated, not drawn: `public/icons/*.png` + `apple-touch-icon.png` came
+  from a tiny Pillow script (lime rounded square, 2×2 ink "boxes" mark — the
+  header's logo tile). Regenerate the same way if the brand changes.
+
+**Previewing on the phone without committing**: run `npm run dev` in the
+Codespace, open VS Code's **Ports** panel, set port 5173's visibility to **Public**
+(or stay logged into GitHub on the phone), and open the forwarded
+`https://…-5173.app.github.dev` URL in iPhone Safari. `vite.config.ts` already
+allows the forwarded host and dials HMR back over 443, so edits hot-reload on the
+phone. (Desktop quick check: Safari → Develop → Enter Responsive Design Mode, or
+Chrome DevTools' device toolbar.) Vercel preview deploys from a branch are the
+fallback when you want a shareable URL.
+
 ## Local development
 
 ```bash
