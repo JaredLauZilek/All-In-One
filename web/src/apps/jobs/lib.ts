@@ -8,8 +8,12 @@ export interface JbApplication {
   id: string; company: string; role: string; location: string | null; url: string | null; source: string | null;
   status: JbStatus; applied_on: string | null; resume_version: string | null; salary: string | null;
   contact: string | null; next_action: string | null; next_action_on: string | null; notes: string | null;
+  resume_path: string | null; resume_name: string | null; // Storage bucket jb-resumes (0002)
   created_at: string; updated_at: string;
 }
+
+/* Resume PDFs: private bucket, <uid>/<application id>/<timestamp>-<name>.pdf. */
+export const RESUME_BUCKET = "jb-resumes";
 export interface JbEvent { id: string; application_id: string; kind: JbEventKind; happened_on: string; notes: string | null; created_at: string }
 
 /* Pipeline order + colours. "open" = still in play (counts as active). */

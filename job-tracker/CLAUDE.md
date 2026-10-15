@@ -12,7 +12,12 @@ two tables directly under owner RLS.
 - **`jb_applications`** — one row per application: company, role, location, posting
   `url`, `source` (LinkedIn / referral / …), `status`, `applied_on`, `resume_version`
   (which tailored resume went out — pairs with the resume-builder skill's naming),
-  `salary`, `contact`, `next_action` + `next_action_on` (follow-up reminder), `notes`.
+  `salary`, `contact`, `next_action` + `next_action_on` (follow-up reminder), `notes`,
+  and (0002) **`resume_path` / `resume_name`** — the PDF actually sent, stored in the
+  PRIVATE Storage bucket `jb-resumes` at `<uid>/<application id>/<ts>-<name>` (10 MB,
+  PDF only; owner-only storage policies keyed on the first folder = `auth.uid()`).
+  The modal uploads on Save, opens it via a 1-hour signed URL, and replace/remove
+  delete the old object.
 - **`jb_events`** — the timeline per application: `kind` ∈ applied / email / call /
   interview / assessment / offer / rejection / followup / note, `happened_on`, notes.
   **A status change logs itself** (applied → "Applied", screening → "Call", interview →
@@ -34,6 +39,6 @@ two tables directly under owner RLS.
 
 ## Deploying
 
-- Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
-  2026-10-15). Next migration: `0002_`.
+- Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 + 0002 applied
+  live 2026-10-15). Next migration: `0003_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).
