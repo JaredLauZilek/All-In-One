@@ -5,8 +5,9 @@
 // Transport: MCP Streamable HTTP — one endpoint, JSON-RPC 2.0 over POST,
 // plain JSON responses (no SSE needed for request/response tools).
 // Auth: deployed verify_jwt: FALSE (claude.ai can't send a Supabase JWT); the
-// request must carry ?key=<mcp_key> where the key lives in jb_private (a
-// service-role-only table: RLS on, no policies — the browser can never read it).
+// request must carry the key as the `X-MCP-Key` header (claude.ai stores custom
+// connector headers secretly — preferred) or as ?key=… (fallback). The key lives in
+// jb_private (a service-role-only table: RLS on, no policies — the browser can never read it).
 // Rotate it with one UPDATE to revoke access. Single-user app: every write is
 // pinned to the sole auth user (looked up once via the admin API), never to a
 // caller-supplied id.
@@ -211,7 +212,8 @@ async function handle(msg: Rpc): Promise<unknown | null> {
 Deno.serve(async (req) => {
   const url = new URL(req.url);
   const secret = await mcpKey();
-  if (!secret || url.searchParams.get("key") !== secret) return new Response("unauthorized", { status: 401 });
+  const presented = req.headers.get("x-mcp-key") ?? url.searchParams.get("key");
+  if (!secret || presented !== secret) return new Response("unauthorized", { status: 401 });
   if (req.method === "GET") return new Response("jb-mcp: POST JSON-RPC here (MCP Streamable HTTP)", { status: 405, headers: { Allow: "POST" } });
   if (req.method === "DELETE") return new Response(null, { status: 204 }); // session close — we're stateless
   if (req.method !== "POST") return new Response("method not allowed", { status: 405 });
