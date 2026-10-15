@@ -2,7 +2,7 @@
 // the shared ApplicationModal handles add / edit / timeline / delete.
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
-import { Briefcase, Plus, Send, Users, Trophy, Percent, ExternalLink, FileText, Copy } from "lucide-react";
+import { Briefcase, Plus, Send, Users, Trophy, Percent, ExternalLink, FileText, Mail, Copy } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, StatCard, EmptyState, cn } from "../../components/ui";
 import { type JbApplication, STATUS, PIPELINE, CLOSED, daysSince, fmtDay, todayISO } from "./lib";
@@ -117,6 +117,7 @@ function AppCard({ a, onOpen, onDuplicate }: { a: JbApplication; onOpen: () => v
         <span className="truncate">{a.company}</span>
         {a.url && <ExternalLink className="h-3 w-3 shrink-0 text-slate-300" />}
         {a.resume_path && <FileText className="h-3 w-3 shrink-0 text-indigo-500" aria-label="Resume attached" />}
+        {a.cover_path && <Mail className="h-3 w-3 shrink-0 text-indigo-500" aria-label="Cover letter attached" />}
       </p>
       <p className="truncate text-xs text-slate-600">{a.role}</p>
       <p className="mt-1 font-mono text-[10px] text-slate-400">

@@ -19,7 +19,7 @@ export default function Log() {
     [apps, q, status]);
 
   const exportCsv = () => {
-    const cols = ["company", "role", "status", "applied_on", "location", "source", "resume_name", "salary", "url", "notes"] as const;
+    const cols = ["company", "role", "status", "applied_on", "location", "source", "resume_name", "cover_name", "salary", "url", "notes"] as const;
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const csv = [cols.join(","), ...rows.map((a) => cols.map((c) => esc(a[c])).join(","))].join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -59,7 +59,7 @@ export default function Log() {
                   <th className="px-3 py-2 font-medium">Status</th>
                   <th className="px-3 py-2 font-medium">Applied</th>
                   <th className="px-3 py-2 font-medium">Source</th>
-                  <th className="px-3 py-2 font-medium">Resume</th>
+                  <th className="px-3 py-2 font-medium">Files</th>
                   <th className="px-3 py-2 font-medium">Updated</th>
                   <th className="px-5 py-2"></th>
                 </tr>
@@ -72,7 +72,7 @@ export default function Log() {
                     <td className="px-3 py-2.5"><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset", STATUS[a.status].pill)}>{STATUS[a.status].label}</span></td>
                     <td className="px-3 py-2.5 font-mono text-xs text-slate-500">{a.applied_on ?? "—"}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-500">{a.source ?? "—"}</td>
-                    <td className="px-3 py-2.5 text-xs text-slate-500">{a.resume_name ?? "—"}</td>
+                    <td className="px-3 py-2.5 text-xs text-slate-500">{[a.resume_name && "resume", a.cover_name && "cover letter"].filter(Boolean).join(" · ") || "—"}</td>
                     <td className="px-3 py-2.5 font-mono text-xs text-slate-400">{a.updated_at.slice(0, 10)}</td>
                     <td className="px-5 py-2.5 text-right">
                       <button type="button" title="Duplicate" aria-label="Duplicate"

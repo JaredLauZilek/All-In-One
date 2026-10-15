@@ -17,8 +17,12 @@ two tables directly under owner RLS.
   and (0002) **`resume_path` / `resume_name`** — the PDF actually sent, stored in the
   PRIVATE Storage bucket `jb-resumes` at `<uid>/<application id>/<ts>-<name>` (10 MB,
   PDF only; owner-only storage policies keyed on the first folder = `auth.uid()`).
-  The modal uploads on Save, opens it via a 1-hour signed URL, and replace/remove
-  delete the old object.
+  Plus (0003) **`cover_path` / `cover_name`** for the cover letter, same bucket. The
+  modal uploads on Save, opens files via 1-hour signed URLs, and replace/remove take
+  effect on Save. **A duplicate shares its source's file objects** (same path, no
+  copy — Jared's choice 2026-10-15), so storage objects are only deleted by
+  `releaseObject()` once NO application references the path (resume or cover);
+  deleting an application releases its files the same way.
 - **`jb_events`** — the timeline per application: `kind` ∈ applied / email / call /
   interview / assessment / offer / rejection / followup / note, `happened_on`, notes.
   **A status change logs itself** (applied → "Applied", screening → "Call", interview →
@@ -43,6 +47,6 @@ two tables directly under owner RLS.
 
 ## Deploying
 
-- Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 + 0002 applied
-  live 2026-10-15). Next migration: `0003_`.
+- Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001–0003 applied
+  live 2026-10-15). Next migration: `0004_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).

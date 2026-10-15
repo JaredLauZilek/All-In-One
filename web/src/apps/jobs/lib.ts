@@ -9,6 +9,7 @@ export interface JbApplication {
   status: JbStatus; applied_on: string | null; resume_version: string | null; salary: string | null;
   contact: string | null; next_action: string | null; next_action_on: string | null; notes: string | null;
   resume_path: string | null; resume_name: string | null; // Storage bucket jb-resumes (0002)
+  cover_path: string | null; cover_name: string | null;   // cover letter, same bucket (0003)
   created_at: string; updated_at: string;
 }
 
