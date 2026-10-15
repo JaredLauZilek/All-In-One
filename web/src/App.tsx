@@ -19,6 +19,8 @@ import TrainingDashboard from "./apps/training/Dashboard";
 import TrainingActivities from "./apps/training/Activities";
 import TrainingRaces from "./apps/training/Races";
 import TrainingSettings from "./apps/training/Settings";
+import JobsPipeline from "./apps/jobs/Pipeline";
+import JobsLog from "./apps/jobs/Log";
 import { Spinner } from "./components/ui";
 
 const queryClient = new QueryClient({
@@ -68,6 +70,9 @@ export default function App() {
             <Route path="/training/activities" element={<TrainingActivities />} />
             <Route path="/training/races" element={<TrainingRaces />} />
             <Route path="/training/settings" element={<TrainingSettings />} />
+            {/* Job Search — pages self-fetch; tables jb_applications / jb_events */}
+            <Route path="/jobs" element={<JobsPipeline />} />
+            <Route path="/jobs/log" element={<JobsLog />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Route>
         </Routes>

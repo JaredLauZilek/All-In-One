@@ -21,6 +21,10 @@ the two previously separate frontends on 2026-08-17:
   `training/` (edge fns tr-connect / tr-sync / tr-plan-week / tr-telegram-webhook —
   see that folder's CLAUDE.md before touching anything tr_)
 
+- **Job Search** (`/jobs`) — added 2026-10-15; resumes sent out + where each
+  application stands (Pipeline board / Log table). Tables `jb_applications` /
+  `jb_events`, owner RLS, no edge functions — see `job-tracker/CLAUDE.md`.
+
 plus two pages of its own: the **Home launcher** (`/`) and **Infrastructure** (`/infra`),
 which lists every external service (Supabase, Vercel, Finnhub, GitHub)
 with live health read straight from the DB.
@@ -47,7 +51,8 @@ web/
     └── apps/
         ├── fin/       FinShell.tsx + Desk/News/Settings (.jsx, ported as-is)
         ├── evs/       Scanner/Trades/Settings (.tsx) + lib.ts
-        └── training/  Dashboard/Activities/Races/Settings (.tsx) + lib.ts
+        ├── training/  Dashboard/Activities/Races/Settings (.tsx) + lib.ts
+        └── jobs/      Pipeline/Log/ApplicationModal (.tsx) + lib.ts
 ```
 
 - **`apps/fin/*.jsx` are plain JSX** (ported verbatim from the old app; `allowJs` is on,
@@ -59,7 +64,7 @@ web/
   the two data patterns are both intentional (polling-friendly vs once-a-day data).
 - **Routing**: `/fin`, `/fin/news`, `/fin/settings`, `/evs`, `/evs/trades`,
   `/evs/settings`, `/training`, `/training/activities`, `/training/races`,
-  `/training/settings`, `/infra`.
+  `/training/settings`, `/jobs`, `/jobs/log`, `/infra`.
   Nav, titles and sub-tabs all derive from `APPS` in
   `Layout.tsx`. A new tool = a folder under `apps/`, routes in `App.tsx`, an APPS
   entry, a tile in `Home.tsx`, and (if it uses services) entries in

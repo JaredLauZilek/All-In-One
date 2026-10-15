@@ -1,0 +1,133 @@
+// Job Search → Pipeline: stats + a board by status. Click a card to open it;
+// the shared ApplicationModal handles add / edit / timeline / delete.
+import { useState } from "react";
+import { useQuery } from "@tanstack/react-query";
+import { Briefcase, Plus, Clock, Send, Users, Trophy, Percent, AlertTriangle, ExternalLink } from "lucide-react";
+import { supabase } from "../../lib/supabase";
+import { Button, Card, CardHeader, StatCard, EmptyState, cn } from "../../components/ui";
+import { type JbApplication, STATUS, PIPELINE, CLOSED, daysSince, fmtDay, isOverdue, todayISO } from "./lib";
+import ApplicationModal from "./ApplicationModal";
+
+export function useApplications() {
+  return useQuery({
+    queryKey: ["jb-apps"],
+    queryFn: async () => {
+      const { data, error } = await supabase.from("jb_applications").select("*")
+        .order("applied_on", { ascending: false, nullsFirst: false }).order("updated_at", { ascending: false });
+      if (error) throw error;
+      return data as JbApplication[];
+    },
+  });
+}
+
+export default function Pipeline() {
+  const { data: apps } = useApplications();
+  const [open, setOpen] = useState<JbApplication | null | "new">(null);
+  const list = apps ?? [];
+  const active = list.filter((a) => STATUS[a.status].open && a.status !== "saved");
+  const month = todayISO().slice(0, 7);
+  const appliedThisMonth = list.filter((a) => a.applied_on?.startsWith(month)).length;
+  const interviewing = list.filter((a) => a.status === "interview").length;
+  const offers = list.filter((a) => a.status === "offer").length;
+  // response rate = anything that got a human reply (screening onward, incl. rejections) / everything sent
+  const sent = list.filter((a) => a.status !== "saved");
+  const responded = sent.filter((a) => !["applied", "ghosted"].includes(a.status));
+  const rate = sent.length ? Math.round((responded.length / sent.length) * 100) : null;
+  const overdue = list.filter(isOverdue);
+
+  return (
+    <div className="space-y-6">
+      <div className="grid grid-cols-2 gap-3 sm:gap-4 xl:grid-cols-5">
+        <StatCard label="Active" value={active.length} accent="bg-indigo-50 text-indigo-600" icon={<Briefcase className="h-5 w-5" />} />
+        <StatCard label="Sent this month" value={appliedThisMonth} accent="bg-slate-100 text-slate-600" icon={<Send className="h-5 w-5" />} />
+        <StatCard label="Interviewing" value={interviewing} accent="bg-emerald-50 text-emerald-600" icon={<Users className="h-5 w-5" />} />
+        <StatCard label="Offers" value={offers} accent="bg-amber-50 text-amber-600" icon={<Trophy className="h-5 w-5" />} />
+        <StatCard label="Response rate" value={rate != null ? `${rate}%` : "—"} accent="bg-slate-100 text-slate-600" icon={<Percent className="h-5 w-5" />} />
+      </div>
+
+      {overdue.length > 0 && (
+        <div className="flex flex-wrap items-center gap-2 rounded-2xl bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          <AlertTriangle className="h-4 w-4" />
+          <span className="font-semibold">{overdue.length} follow-up{overdue.length > 1 ? "s" : ""} overdue:</span>
+          {overdue.map((a) => (
+            <button key={a.id} onClick={() => setOpen(a)} className="rounded-full bg-surface px-2.5 py-0.5 text-xs font-medium text-amber-800 ring-1 ring-amber-200 hover:ring-amber-400">
+              {a.company} · {a.next_action ?? "follow up"} · {fmtDay(a.next_action_on)}
+            </button>
+          ))}
+        </div>
+      )}
+
+      <Card>
+        <CardHeader title="Pipeline" subtitle="Click a card to open it · status changes write themselves into the timeline"
+          action={<Button onClick={() => setOpen("new")}><Plus className="h-4 w-4" /> Add application</Button>} />
+        {list.length === 0 ? (
+          <EmptyState icon={<Briefcase className="h-5 w-5" />} title="No applications yet"
+            subtitle="Add the ones you've sent — company, role, which resume went out, and when to follow up." />
+        ) : (
+          <div className="overflow-x-auto">
+            <div className="grid min-w-[60rem] grid-cols-5 divide-x divide-slate-100">
+              {PIPELINE.map((s) => {
+                const col = list.filter((a) => a.status === s);
+                return (
+                  <div key={s} className="min-h-[14rem] px-3 py-3">
+                    <p className="mb-2 flex items-center gap-1.5 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
+                      <span className={cn("h-1.5 w-1.5 rounded-full", STATUS[s].dot)} /> {STATUS[s].label}
+                      <span className="ml-auto font-mono text-slate-400">{col.length}</span>
+                    </p>
+                    <div className="space-y-2">
+                      {col.map((a) => <AppCard key={a.id} a={a} onOpen={() => setOpen(a)} />)}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+      </Card>
+
+      {list.some((a) => CLOSED.includes(a.status)) && (
+        <Card>
+          <CardHeader title="Closed" subtitle="Rejected · withdrawn · ghosted — kept for the record and the response rate" />
+          <ul className="divide-y divide-slate-100">
+            {list.filter((a) => CLOSED.includes(a.status)).map((a) => (
+              <li key={a.id}>
+                <button onClick={() => setOpen(a)} className="flex w-full items-center gap-3 px-5 py-2.5 text-left hover:bg-slate-50">
+                  <span className="text-sm font-semibold text-slate-600">{a.company}</span>
+                  <span className="truncate text-xs text-slate-400">{a.role}</span>
+                  <span className={cn("ml-auto shrink-0 rounded-full px-2 py-0.5 text-[10px] font-medium ring-1 ring-inset", STATUS[a.status].pill)}>{STATUS[a.status].label}</span>
+                  <span className="w-16 shrink-0 text-right font-mono text-[11px] text-slate-400">{fmtDay(a.applied_on)}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      )}
+
+      {open && <ApplicationModal app={open === "new" ? null : open} onClose={() => setOpen(null)} />}
+    </div>
+  );
+}
+
+function AppCard({ a, onOpen }: { a: JbApplication; onOpen: () => void }) {
+  const age = daysSince(a.applied_on);
+  const overdue = isOverdue(a);
+  return (
+    <button type="button" onClick={onOpen}
+      className={cn("w-full rounded-xl bg-slate-50 p-2.5 text-left transition hover:bg-slate-100 dark:bg-slate-100 dark:hover:bg-slate-200",
+        overdue && "ring-1 ring-amber-300")}>
+      <p className="flex items-center gap-1 text-sm font-semibold text-slate-900">
+        <span className="truncate">{a.company}</span>
+        {a.url && <ExternalLink className="h-3 w-3 shrink-0 text-slate-300" />}
+      </p>
+      <p className="truncate text-xs text-slate-600">{a.role}</p>
+      <p className="mt-1 font-mono text-[10px] text-slate-400">
+        {a.applied_on ? `${fmtDay(a.applied_on)} · ${age}d` : "not sent"}{a.source ? ` · ${a.source}` : ""}{a.resume_version ? ` · ${a.resume_version}` : ""}
+      </p>
+      {a.next_action && (
+        <p className={cn("mt-1 flex items-center gap-1 text-[11px]", overdue ? "font-semibold text-amber-700" : "text-slate-500")}>
+          <Clock className="h-3 w-3" /> {a.next_action}{a.next_action_on ? ` · ${fmtDay(a.next_action_on)}` : ""}
+        </p>
+      )}
+    </button>
+  );
+}
