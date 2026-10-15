@@ -54,9 +54,11 @@ projects. Source: `supabase/functions/jb-mcp/index.ts`.
 
 - Transport: MCP Streamable HTTP — one endpoint, JSON-RPC 2.0 over POST, plain JSON
   replies (`initialize`, `ping`, `tools/list`, `tools/call`; notifications → 202).
-- URL: `https://vjqbircarzxcxrdzlyxj.supabase.co/functions/v1/jb-mcp` with the key as
-  the request header **`X-MCP-Key`** (claude.ai stores connector headers secretly);
-  `?key=…` in the URL also works as a fallback for other clients. Deployed
+- URL: `https://vjqbircarzxcxrdzlyxj.supabase.co/functions/v1/jb-mcp` with the key as a
+  request header. claude.ai only allows PRE-APPROVED header names (a custom
+  `X-MCP-Key` was rejected 2026-10-15), so the server accepts **`Authorization:
+  Bearer <key>`** and **`X-API-Key: <key>`** too; `X-MCP-Key` and `?key=…` remain for
+  other clients. Deployed
   **`verify_jwt: false`** (claude.ai can't send a Supabase JWT). The key lives
   in **`jb_private`** (0004: one row, RLS on, NO policies → service role only; the value
   was inserted out-of-band and is never committed). Rotate = `update jb_private set
@@ -68,7 +70,8 @@ projects. Source: `supabase/functions/jb-mcp/index.ts`.
   on purpose. Status changes log the matching event, same rule as the app.
 - Add in claude.ai: Settings → Connectors → **Add custom connector** → name
   "Job Search", the bare URL, Authentication **No sign-in**, Request headers →
-  Add header `X-MCP-Key` = the key → Add. Then enable it in a
+  Add header, pick **Authorization** from the dropdown, value `Bearer <key>` (or
+  **X-API-Key** = `<key>` if that's what the list offers) → Add. Then enable it in a
   chat (the connectors toggle) and e.g. "search my Gmail for replies from Stripe and
   update the Stripe application".
 
