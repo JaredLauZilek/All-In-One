@@ -2,7 +2,7 @@
 // an add-event form, and Delete. A status change on save logs itself as an event.
 import { useState, type FormEvent } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Trash2, ExternalLink, Plus, FileText, Upload, X } from "lucide-react";
+import { Trash2, ExternalLink, Plus, FileText, Upload, X, Copy } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Input, Select, Textarea, Modal, cn } from "../../components/ui";
 import {
@@ -40,12 +40,22 @@ export function invalidateJobs(qc: ReturnType<typeof useQueryClient>) {
   qc.invalidateQueries({ queryKey: ["home-status"] });
 }
 
-export default function ApplicationModal({ app, onClose }: { app: JbApplication | null; onClose: () => void }) {
+/* What a duplicate carries over: the posting's facts, not its history. Status
+   resets to "applied" today — the usual case is another role at the same company
+   or a re-apply. No resume file, no timeline. */
+export function duplicateTemplate(a: JbApplication): Partial<Draft> {
+  return { company: a.company, role: a.role, location: a.location ?? "", url: a.url ?? "", source: a.source ?? "",
+    salary: a.salary ?? "", notes: a.notes ?? "", status: "applied", applied_on: todayISO() };
+}
+
+export default function ApplicationModal({ app, template, onClose, onDuplicate }: {
+  app: JbApplication | null; template?: Partial<Draft>; onClose: () => void; onDuplicate?: (a: JbApplication) => void;
+}) {
   const qc = useQueryClient();
   const editing = !!app;
   const [d, setD] = useState<Draft>(app ? { ...EMPTY, ...app, location: app.location ?? "", url: app.url ?? "", source: app.source ?? "",
     applied_on: app.applied_on ?? "", resume_version: app.resume_version ?? "", salary: app.salary ?? "", contact: app.contact ?? "",
-    next_action: app.next_action ?? "", next_action_on: app.next_action_on ?? "", notes: app.notes ?? "" } : EMPTY);
+    next_action: app.next_action ?? "", next_action_on: app.next_action_on ?? "", notes: app.notes ?? "" } : { ...EMPTY, ...template });
   const set = <K extends keyof Draft>(k: K, v: Draft[K]) => setD((p) => ({ ...p, [k]: v }));
   const [file, setFile] = useState<File | null>(null); // chosen but not yet uploaded (uploads on Save)
   const [fileErr, setFileErr] = useState<string | null>(null);
@@ -110,7 +120,7 @@ export default function ApplicationModal({ app, onClose }: { app: JbApplication 
   );
 
   return (
-    <Modal open onClose={onClose} title={editing ? `${app!.company} — ${app!.role}` : "Add application"} wide>
+    <Modal open onClose={onClose} title={editing ? `${app!.company} — ${app!.role}` : template ? `Duplicate of ${template.company ?? "application"} — edit, then Add` : "Add application"} wide>
       <form onSubmit={onSubmit} className="space-y-4">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
           {field("Company", <Input autoFocus value={d.company} onChange={(e) => set("company", e.target.value)} placeholder="e.g. Grab" />)}
@@ -156,6 +166,11 @@ export default function ApplicationModal({ app, onClose }: { app: JbApplication 
             {editing && (
               <Button type="button" variant="ghost" onClick={() => { if (confirm(`Delete ${app!.company} — ${app!.role}? Its timeline goes too.`)) remove.mutate(); }} loading={remove.isPending}>
                 <Trash2 className="h-4 w-4" /> Delete
+              </Button>
+            )}
+            {editing && onDuplicate && (
+              <Button type="button" variant="ghost" title="Start a new application with these details" onClick={() => onDuplicate(app!)}>
+                <Copy className="h-4 w-4" /> Duplicate
               </Button>
             )}
             {editing && app!.url && (
