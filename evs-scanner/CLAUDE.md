@@ -23,7 +23,16 @@ web /evs Scanner ── supabase.functions.invoke ──> edge fn evs-scan
                                                     ├─ Yahoo v8 chart (history)
                                                     └─ all math + verdict, returns JSON
 web /evs Trades / Settings ──> tables evs_trades / evs_settings (owner-scoped RLS)
+web /evs Scanner (calendar panel) ──> edge fn evs-calendar ── Finnhub /calendar/earnings
 ```
+
+- **`supabase/functions/evs-calendar/index.ts`** (2026-10-15) feeds the **Earnings
+  calendar** panel under the ticker search: next 14 days of US reporters from Finnhub's
+  free calendar (`FINNHUB_API_KEY` — the same project secret fin-daily-signal uses),
+  kept only when the revenue estimate is ≥ $1B (Finnhub lists every micro-cap; the
+  estimate is the liquidity proxy), ≤12 per day, cached in-isolate 30 min. Logos need
+  no API: `financialmodelingprep.com/image-stock/<T>.png`, parqet as fallback, then a
+  ticker-initials tile. Clicking a name fills the search and scans it.
 
 - **`supabase/functions/evs-scan/index.ts`** is the only place the model lives: ATM-IV
   term structure (skips IVs ≤0.01 or ≥5), linear interpolation to 30/45 DTE, slope =
@@ -48,8 +57,8 @@ web /evs Trades / Settings ──> tables evs_trades / evs_settings (owner-scope
 
 ## Deploying
 
-- Edge function: Supabase MCP `deploy_edge_function` (name `evs-scan`,
-  `verify_jwt: true`); `supabase/functions/` here is the source mirror.
+- Edge functions: Supabase MCP `deploy_edge_function` (`evs-scan` and `evs-calendar`,
+  both `verify_jwt: true`); `supabase/functions/` here is the source mirror.
 - Schema: MCP `apply_migration`; mirror into `supabase/migrations/` (0001 applied live
   2026-08-26). Next migration: `0002_`.
 - Frontend: push to main (single Vercel deploy — see `web/CLAUDE.md`).

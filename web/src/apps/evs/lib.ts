@@ -99,3 +99,10 @@ export function fmtZoned(tsSec: number, tz: string): string {
     minute: "2-digit",
   }).format(new Date(tsSec * 1000));
 }
+
+/* evs-calendar — upcoming earnings (Finnhub, revenue est ≥ $1B) for the Scanner panel. */
+export interface EarningsEvent { symbol: string; hour: string | null; epsEstimate: number | null; revenueEstimate: number | null }
+export interface EarningsCalendar { from: string; to: string; source: string; days: { date: string; events: EarningsEvent[] }[] }
+/* Company logo without an API key: FMP's image-stock endpoint (PNG), parqet as fallback. */
+export const logoUrl = (symbol: string) => `https://financialmodelingprep.com/image-stock/${encodeURIComponent(symbol)}.png`;
+export const logoFallbackUrl = (symbol: string) => `https://assets.parqet.com/logos/symbol/${encodeURIComponent(symbol)}?format=png`;

@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Search, CalendarClock, TrendingDown, BarChart3, Percent, NotebookPen, AlertTriangle, Check } from "lucide-react";
 import { supabase } from "../../lib/supabase";
 import { Button, Card, CardHeader, Input, StatusBadge, DataRow, EmptyState, cn } from "../../components/ui";
-import { fmtVolume, fmtZoned, type ScanResult, type EvsSettings } from "./lib";
+import { fmtVolume, fmtZoned, logoUrl, logoFallbackUrl, type ScanResult, type EvsSettings, type EarningsCalendar } from "./lib";
 
 // Settings row is created lazily with defaults on first read (same pattern as
 // the Restock Monitor's settings page).
@@ -114,15 +114,9 @@ export default function Scanner() {
         <p className="rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{(scan.error as Error).message}</p>
       )}
 
-      {!result && !scan.isError && (
-        <Card>
-          <EmptyState
-            icon={<CalendarClock className="h-5 w-5" />}
-            title="Scan a ticker"
-            subtitle="Checks the next earnings date and whether the three filters (term-structure slope, volume, IV30/RV30) say this is a playable setup."
-          />
-        </Card>
-      )}
+      {/* Upcoming earnings — click a name to scan it. Always shown, so the page
+          is never empty and the next scan is one click away. */}
+      <EarningsCalendarPanel onPick={(t) => { setTicker(t); scan.mutate(t); }} scanning={scan.isPending ? ticker : null} />
 
       {result && (
         <>
@@ -216,6 +210,72 @@ function VerdictCard({ result }: { result: ScanResult }) {
           <DataRow label="Next earnings" value="Unknown — Yahoo has no date" tone="warn" />
         )}
       </div>
+    </Card>
+  );
+}
+
+/* ---------------- upcoming earnings calendar ---------------- */
+const HOUR_TAG: Record<string, string> = { bmo: "pre-mkt", amc: "after close", dmh: "during" };
+function Logo({ symbol }: { symbol: string }) {
+  const [src, setSrc] = useState(logoUrl(symbol));
+  const [dead, setDead] = useState(false);
+  if (dead) {
+    return <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-slate-100 font-mono text-[10px] font-bold text-slate-500">{symbol.slice(0, 3)}</span>;
+  }
+  return (
+    <img src={src} alt="" width={28} height={28} loading="lazy"
+      className="h-7 w-7 rounded-lg bg-surface object-contain ring-1 ring-slate-200/70"
+      onError={() => { if (src === logoUrl(symbol)) setSrc(logoFallbackUrl(symbol)); else setDead(true); }} />
+  );
+}
+
+function EarningsCalendarPanel({ onPick, scanning }: { onPick: (t: string) => void; scanning: string | null }) {
+  const cal = useQuery({
+    queryKey: ["evs-calendar"],
+    staleTime: 30 * 60_000,
+    queryFn: async (): Promise<EarningsCalendar> => {
+      const { data, error } = await supabase.functions.invoke("evs-calendar", { body: { days: 14 } });
+      if (error) throw error;
+      if ((data as any)?.error) throw new Error((data as any).error);
+      return data as EarningsCalendar;
+    },
+  });
+  const dayLabel = (d: string) => {
+    const dt = new Date(d + "T12:00:00Z");
+    return dt.toLocaleDateString("en-GB", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" });
+  };
+  const todayIso = new Date().toISOString().slice(0, 10);
+  return (
+    <Card>
+      <CardHeader title="Earnings calendar" subtitle={`Next 14 days · US names with revenue estimates ≥ $1B · click to scan${cal.data ? ` · ${cal.data.source.split(" · ")[0]}` : ""}`} />
+      {cal.isPending && <p className="px-5 py-6 text-sm text-slate-400">Loading upcoming earnings…</p>}
+      {cal.isError && <p className="mx-5 my-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700">{(cal.error as Error).message}</p>}
+      {cal.data && cal.data.days.length === 0 && (
+        <EmptyState icon={<CalendarClock className="h-5 w-5" />} title="Nothing scheduled" subtitle="No large-cap reporters in the next two weeks." />
+      )}
+      {cal.data && cal.data.days.length > 0 && (
+        <ul className="divide-y divide-slate-100">
+          {cal.data.days.map((d) => (
+            <li key={d.date} className="flex flex-col gap-2 px-5 py-3 sm:flex-row sm:items-start">
+              <p className={cn("w-24 shrink-0 pt-1.5 text-xs font-semibold", d.date === todayIso ? "text-indigo-600" : "text-slate-500")}>
+                {dayLabel(d.date)}{d.date === todayIso ? " · today" : ""}
+              </p>
+              <div className="flex flex-wrap gap-2">
+                {d.events.map((e) => (
+                  <button key={e.symbol} type="button" onClick={() => onPick(e.symbol)}
+                    title={`${e.symbol}${e.hour ? ` · ${HOUR_TAG[e.hour] ?? e.hour}` : ""}${e.revenueEstimate ? ` · rev est $${(e.revenueEstimate / 1e9).toFixed(1)}B` : ""}${e.epsEstimate != null ? ` · EPS est ${e.epsEstimate}` : ""}`}
+                    className={cn("flex items-center gap-2 rounded-full border border-slate-200/70 bg-surface py-1 pl-1 pr-3 text-xs font-semibold text-slate-800 transition hover:border-slate-300 hover:bg-slate-50",
+                      scanning === e.symbol && "ring-2 ring-indigo-500")}>
+                    <Logo symbol={e.symbol} />
+                    <span className="font-mono">{e.symbol}</span>
+                    {e.hour && <span className="font-normal text-slate-400">{HOUR_TAG[e.hour] ?? e.hour}</span>}
+                  </button>
+                ))}
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
     </Card>
   );
 }
