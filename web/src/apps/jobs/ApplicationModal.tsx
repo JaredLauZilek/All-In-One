@@ -29,9 +29,10 @@ async function attachResume(appId: string, file: File, previousPath: string | nu
   if (uErr) throw uErr;
   if (previousPath) await supabase.storage.from(RESUME_BUCKET).remove([previousPath]);
 }
+// Explicit column list: `d` carries id / created_at / resume_* when editing, and
+// those must not ride along in the PATCH.
 const clean = (d: Draft): Draft => ({
-  company: d.company.trim(), role: d.role.trim(), status: d.status, resume_version: d.resume_version || null,
-  contact: d.contact || null, next_action: d.next_action || null, next_action_on: d.next_action_on || null,
+  company: d.company.trim(), role: d.role.trim(), status: d.status,
   location: d.location || null, url: d.url || null, source: d.source || null, applied_on: d.applied_on || null,
   resume_version: d.resume_version || null, salary: d.salary || null, contact: d.contact || null,
   next_action: d.next_action || null, next_action_on: d.next_action_on || null, notes: d.notes || null,
