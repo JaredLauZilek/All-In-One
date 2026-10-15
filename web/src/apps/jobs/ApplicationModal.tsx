@@ -122,7 +122,6 @@ export default function ApplicationModal({ app, onClose }: { app: JbApplication 
           {field("Source", <Select value={d.source ?? ""} onChange={(e) => set("source", e.target.value)}>
             <option value="">—</option>{SOURCES.map((s) => <option key={s} value={s}>{s}</option>)}</Select>)}
           {field("Posting link", <Input value={d.url ?? ""} onChange={(e) => set("url", e.target.value)} placeholder="https://…" />, true)}
-          {field("Resume version sent", <Input value={d.resume_version ?? ""} onChange={(e) => set("resume_version", e.target.value)} placeholder="e.g. PM-fintech v3" />)}
           {field("Resume PDF", (
             <div className="flex min-h-[42px] flex-wrap items-center gap-2 rounded-lg border border-dashed border-slate-300 px-3 py-1.5 text-xs">
               {file ? (

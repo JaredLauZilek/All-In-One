@@ -14,11 +14,11 @@ export default function Log() {
   const [open, setOpen] = useState<JbApplication | null | "new">(null);
   const rows = useMemo(() => (apps ?? []).filter((a) =>
     (!status || a.status === status) &&
-    (!q || `${a.company} ${a.role} ${a.location ?? ""} ${a.source ?? ""} ${a.resume_version ?? ""} ${a.notes ?? ""}`.toLowerCase().includes(q.toLowerCase()))),
+    (!q || `${a.company} ${a.role} ${a.location ?? ""} ${a.source ?? ""} ${a.resume_name ?? ""} ${a.notes ?? ""}`.toLowerCase().includes(q.toLowerCase()))),
     [apps, q, status]);
 
   const exportCsv = () => {
-    const cols = ["company", "role", "status", "applied_on", "location", "source", "resume_version", "salary", "url", "notes"] as const;
+    const cols = ["company", "role", "status", "applied_on", "location", "source", "resume_name", "salary", "url", "notes"] as const;
     const esc = (v: unknown) => `"${String(v ?? "").replace(/"/g, '""')}"`;
     const csv = [cols.join(","), ...rows.map((a) => cols.map((c) => esc(a[c])).join(","))].join("\n");
     const url = URL.createObjectURL(new Blob([csv], { type: "text/csv" }));
@@ -70,7 +70,7 @@ export default function Log() {
                     <td className="px-3 py-2.5"><span className={cn("rounded-full px-2 py-0.5 text-[11px] font-medium ring-1 ring-inset", STATUS[a.status].pill)}>{STATUS[a.status].label}</span></td>
                     <td className="px-3 py-2.5 font-mono text-xs text-slate-500">{a.applied_on ?? "—"}</td>
                     <td className="px-3 py-2.5 text-xs text-slate-500">{a.source ?? "—"}</td>
-                    <td className="px-3 py-2.5 text-xs text-slate-500">{a.resume_version ?? "—"}</td>
+                    <td className="px-3 py-2.5 text-xs text-slate-500">{a.resume_name ?? "—"}</td>
                     <td className="px-5 py-2.5 font-mono text-xs text-slate-400">{a.updated_at.slice(0, 10)}</td>
                   </tr>
                 ))}

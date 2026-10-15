@@ -107,7 +107,7 @@ function AppCard({ a, onOpen }: { a: JbApplication; onOpen: () => void }) {
       </p>
       <p className="truncate text-xs text-slate-600">{a.role}</p>
       <p className="mt-1 font-mono text-[10px] text-slate-400">
-        {a.applied_on ? `${fmtDay(a.applied_on)} · ${age}d` : "not sent"}{a.source ? ` · ${a.source}` : ""}{a.resume_version ? ` · ${a.resume_version}` : ""}
+        {a.applied_on ? `${fmtDay(a.applied_on)} · ${age}d` : "not sent"}{a.source ? ` · ${a.source}` : ""}
       </p>
     </button>
   );

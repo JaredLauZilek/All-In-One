@@ -10,8 +10,8 @@ two tables directly under owner RLS.
 ## What this is
 
 - **`jb_applications`** — one row per application: company, role, location, posting
-  `url`, `source` (LinkedIn / referral / …), `status`, `applied_on`, `resume_version`
-  (which tailored resume went out — pairs with the resume-builder skill's naming),
+  `url`, `source` (LinkedIn / referral / …), `status`, `applied_on`, `resume_version` (column kept, field removed 2026-10-15 — the
+  uploaded PDF's filename is the version now),
   `salary`, `notes` (`contact` / `next_action` / `next_action_on` exist in the table but
   were dropped from the UI 2026-10-15 — Jared didn't want them),
   and (0002) **`resume_path` / `resume_name`** — the PDF actually sent, stored in the
